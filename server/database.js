@@ -1056,6 +1056,8 @@ export async function deleteUserData(userId) {
   await query('DELETE FROM wallet WHERE user_id=$1', [userId]);
   await query('DELETE FROM coupons WHERE seller_id=$1', [userId]).catch(() => {});
   await query('DELETE FROM data_requests WHERE user_id=$1', [userId]).catch(() => {});
+  await query('DELETE FROM experts WHERE user_id=$1', [userId]).catch(() => {});
+  await query('DELETE FROM sellers WHERE user_id=$1', [userId]).catch(() => {});
 
   // Hard-delete the user record (all FKs reassigned above)
   await query('DELETE FROM users WHERE id=$1', [userId]);
