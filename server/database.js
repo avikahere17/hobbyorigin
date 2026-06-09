@@ -1019,21 +1019,45 @@ export async function createDataRequest(userId, requestType) {
 
 export async function deleteUserData(userId) {
   // GDPR Art. 17 — Right to Erasure
-  // Anonymise messages and tips (keep group integrity), hard-delete personal data
+  const SYSTEM_ID = '00000000-system-hobbyorigin-0000';
   const anon = '[deleted]';
-  await query(`UPDATE messages SET content=$1, video_url='' WHERE sender_id=$2`, [anon, userId]);
+
+  // Anonymise messages but keep them (preserve group conversation context)
+  // Reassign sender_id to system user so FK constraint is satisfied
+  await query(`UPDATE messages SET content=$1, video_url='', sender_id=$2 WHERE sender_id=$3`, [anon, SYSTEM_ID, userId]);
+
+  // Anonymise tips (financial records must be kept 7yr — only wipe personal message)
   await query(`UPDATE tips SET message=$1 WHERE from_id=$2 OR to_id=$2`, [anon, userId]);
-  // Remove memberships, bookings, reviews, notifications
+
+  // Reassign groups created by this user to system user (preserve group + member data)
+  await query(`UPDATE groups SET creator_id=$1 WHERE creator_id=$2`, [SYSTEM_ID, userId]);
+
+  // Reassign events, products, campaigns to system user
+  await query(`UPDATE events SET creator_id=$1 WHERE creator_id=$2`, [SYSTEM_ID, userId]);
+  await query(`UPDATE products SET creator_id=$1 WHERE creator_id=$2`, [SYSTEM_ID, userId]).catch(() => {});
+  await query(`UPDATE campaigns SET creator_id=$1 WHERE creator_id=$2`, [SYSTEM_ID, userId]).catch(() => {});
+
+  // Reassign expert profile host to system (expert_bookings may reference expert id not user id)
+  await query(`UPDATE webinars SET host_id=$1 WHERE host_id=$2`, [SYSTEM_ID, userId]).catch(() => {});
+
+  // Reassign learning content author to system user
+  await query(`UPDATE learning_content SET author_id=$1 WHERE author_id=$2`, [SYSTEM_ID, userId]).catch(() => {});
+
+  // Delete membership / interaction records that are truly personal
   await query('DELETE FROM group_members WHERE user_id=$1', [userId]);
   await query('DELETE FROM notifications WHERE user_id=$1 OR actor_id=$1', [userId]);
   await query('DELETE FROM buddy_requests WHERE from_id=$1 OR to_id=$1', [userId]);
   await query('DELETE FROM event_registrations WHERE user_id=$1', [userId]);
   await query('DELETE FROM webinar_attendees WHERE user_id=$1', [userId]);
   await query('DELETE FROM expert_bookings WHERE user_id=$1', [userId]);
+  await query('DELETE FROM expert_reviews WHERE user_id=$1', [userId]).catch(() => {});
   await query('DELETE FROM privacy_consents WHERE user_id=$1', [userId]);
   await query('DELETE FROM parent_child WHERE parent_id=$1 OR child_id=$1', [userId]);
   await query('DELETE FROM wallet WHERE user_id=$1', [userId]);
-  // Hard-delete the user record
+  await query('DELETE FROM coupons WHERE seller_id=$1', [userId]).catch(() => {});
+  await query('DELETE FROM data_requests WHERE user_id=$1', [userId]).catch(() => {});
+
+  // Hard-delete the user record (all FKs reassigned above)
   await query('DELETE FROM users WHERE id=$1', [userId]);
 }
 

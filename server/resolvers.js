@@ -128,7 +128,13 @@ async function resolveGroup(g, userId) {
     isMember: memberCheck,
     isSeeded: !!g.isSeeded,
     creator: creator ? await resolveUser(creator) : { id: g.creatorId, name: 'HobbyOrigin', avatarColor: '#6366f1', ageGroup: 'ADULTS', role: 'ADMIN', bio: '', interests: [], theme: 'STANDARD', language: 'en', currency: 'GBP', locale: 'en-GB', joinedGroups: [], unreadCount: 0, tipsEarned: 0, walletCoins: 0, children: [], createdAt: g.createdAt, location: { building:'', neighborhood:'', city:'', country:'', lat:null, lng:null } },
-    messages,
+    messages: await Promise.all(messages.map(async m => {
+      const sender = await getUser(m.senderId).catch(() => null);
+      return {
+        ...m,
+        sender: sender ? await resolveUser(sender) : { id: m.senderId, name: 'HobbyOrigin', avatarColor: '#6366f1', ageGroup: 'ADULTS', role: 'USER', bio: '', interests: [], theme: 'STANDARD', language: 'en', currency: 'GBP', locale: 'en-GB', joinedGroups: [], unreadCount: 0, tipsEarned: 0, walletCoins: 0, children: [], createdAt: m.createdAt, location: { building:'', neighborhood:'', city:'', country:'', lat:null, lng:null } },
+      };
+    })),
     location: { building: g.building||'', neighborhood: g.neighborhood||'', city: g.city||'', country: g.country||'', lat: null, lng: null },
     schedule: g.scheduleDay ? {
       day: g.scheduleDay, time: g.scheduleTime,
@@ -426,6 +432,8 @@ export const resolvers = {
       requireAuth(user);
       const group = await getGroup(groupId);
       if (!group) throw new GraphQLError('Group not found');
+      const alreadyMember = await isMember(groupId, user.id);
+      if (alreadyMember) throw new GraphQLError('You are already a member of this group');
       const count = await getMemberCount(groupId);
       if (count >= group.maxMembers) throw new GraphQLError('Group is full');
       await joinGroup(groupId, user.id);
@@ -465,6 +473,7 @@ export const resolvers = {
 
     sendBuddyRequest: async (_, { toUserId }, { user, pubsub }) => {
       requireAuth(user);
+      if (user.id === toUserId) throw new GraphQLError('You cannot send a buddy request to yourself');
       const to = await getUser(toUserId);
       if (!to) throw new GraphQLError('User not found');
       await sendBuddyRequest({ id: uuid(), fromId: user.id, toId: toUserId, createdAt: new Date().toISOString() });
@@ -482,6 +491,7 @@ export const resolvers = {
 
     sendTip: async (_, { toUserId, groupId, amount, message }, { user, pubsub }) => {
       requireAuth(user);
+      if (user.id === toUserId) throw new GraphQLError('You cannot tip yourself');
       if (amount < 1 || amount > 100) throw new GraphQLError('Amount must be 1–100 coins');
       const to = await getUser(toUserId);
       if (!to) throw new GraphQLError('User not found');
@@ -507,6 +517,8 @@ export const resolvers = {
       requireAuth(user);
       const event = await getEvent(eventId);
       if (!event) throw new GraphQLError('Event not found');
+      const alreadyReg = await isRegisteredForEvent(eventId, user.id);
+      if (alreadyReg) throw new GraphQLError('You are already registered for this event');
       const count = await getEventRegistrationCount(eventId);
       if (count >= event.capacity) throw new GraphQLError('Event is full');
       await dbRegisterForEvent(eventId, user.id);
@@ -556,6 +568,7 @@ export const resolvers = {
 
     registerAsExpert: async (_, args, { user }) => {
       requireAuth(user);
+      if (user.role === 'SELLER') throw new GraphQLError('Seller accounts cannot register as experts. Contact support to change your role.');
       const existing = await getExpertByUser(user.id);
       if (existing) throw new GraphQLError('You are already registered as an expert');
       if (!args.skills || args.skills.length === 0) throw new GraphQLError('At least one skill is required');
@@ -707,6 +720,8 @@ export const resolvers = {
       requireAuth(user);
       const w = await getWebinar(webinarId);
       if (!w) throw new GraphQLError('Webinar not found');
+      const attending = await isWebinarAttendee(webinarId, user.id);
+      if (attending) throw new GraphQLError('You are already registered for this webinar');
       const count = await getWebinarAttendeeCount(webinarId);
       if (count >= w.maxAttendees) throw new GraphQLError('Webinar is full');
       await dbJoinWebinar(webinarId, user.id);

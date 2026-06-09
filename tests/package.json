@@ -1,0 +1,12 @@
+{
+  "name": "hobbyorigin-e2e-tests",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test":         "node e2e.test.js",
+    "test:verbose": "node e2e.test.js --verbose",
+    "test:bail":    "node e2e.test.js --bail",
+    "test:prod":    "SERVER_URL=https://hobbyorigin-server.onrender.com/graphql node e2e.test.js",
+    "test:prod:verbose": "SERVER_URL=https://hobbyorigin-server.onrender.com/graphql node e2e.test.js --verbose"
+  }
+}
