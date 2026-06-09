@@ -1026,8 +1026,8 @@ export async function deleteUserData(userId) {
   // Reassign sender_id to system user so FK constraint is satisfied
   await query(`UPDATE messages SET content=$1, video_url='', sender_id=$2 WHERE sender_id=$3`, [anon, SYSTEM_ID, userId]);
 
-  // Anonymise tips (financial records must be kept 7yr — only wipe personal message)
-  await query(`UPDATE tips SET message=$1 WHERE from_id=$2 OR to_id=$2`, [anon, userId]);
+  // Anonymise tips — reassign to system user (financial records kept for 7yr compliance)
+  await query(`UPDATE tips SET message=$1, from_id=CASE WHEN from_id=$2 THEN $3 ELSE from_id END, to_id=CASE WHEN to_id=$2 THEN $3 ELSE to_id END WHERE from_id=$2 OR to_id=$2`, [anon, userId, SYSTEM_ID]);
 
   // Reassign groups created by this user to system user (preserve group + member data)
   await query(`UPDATE groups SET creator_id=$1 WHERE creator_id=$2`, [SYSTEM_ID, userId]);
