@@ -24,6 +24,8 @@ import {
   createWebinar as dbCreateWebinar, getWebinar, getGroupWebinars, joinWebinar as dbJoinWebinar, leaveWebinar as dbLeaveWebinar,
   getWebinarAttendees, getWebinarAttendeeCount, isWebinarAttendee, updateWebinarStatus, addWebinarReward,
   getPrivacyConsent, upsertPrivacyConsent, createDataRequest, deleteUserData, exportUserData, auditLog,
+  getMatchedGroupsForExpert, applyExpertToGroup as dbApplyExpertToGroup,
+  getExpertGroupRequests, getPendingExpertRequestsForGroup, updateExpertGroupRequest,
 } from './database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hobbyorigin_secret_2024';
@@ -316,6 +318,50 @@ export const resolvers = {
       const unitValue = coinValueInCurrency(currency); // e.g. 1 pence per coin
       return { ...wallet, coinValueLocal: unitValue / 100, coinCurrency: currency }; // convert to major units
     },
+    matchedGroupsForExpert: async (_, __, { user }) => {
+      requireAuth(user);
+      const expert = await getExpertByUser(user.id);
+      if (!expert) return [];
+      const matched = await getMatchedGroupsForExpert(expert.id);
+      // Enrich with request status
+      const requests = await getExpertGroupRequests(expert.id);
+      const statusMap = {};
+      for (const r of requests) statusMap[r.group_id] = r.status;
+      return matched.map(g => ({ ...g, requestStatus: statusMap[g.id] || null }));
+    },
+
+    myExpertGroupRequests: async (_, __, { user }) => {
+      requireAuth(user);
+      const expert = await getExpertByUser(user.id);
+      if (!expert) return [];
+      const rows = await getExpertGroupRequests(expert.id);
+      return rows.map(r => ({
+        id: r.id, expertId: r.expert_id, groupId: r.group_id,
+        groupName: r.group_name || '', groupCategory: r.group_category || '',
+        status: r.status, message: r.message || '',
+        createdAt: r.created_at,
+      }));
+    },
+
+    pendingExpertRequestsForGroup: async (_, { groupId }, { user }) => {
+      requireAuth(user);
+      const rows = await getPendingExpertRequestsForGroup(groupId);
+      return rows.map(r => ({
+        id: r.id, expertId: r.expert_id, groupId: r.group_id,
+        groupName: '', groupCategory: '',
+        status: r.status, message: r.message || '',
+        createdAt: r.created_at,
+        expertHeadline: r.expert_headline || '',
+        expertSkills: JSON.parse(r.expert_skills || '[]'),
+        expertServiceType: r.service_type || '',
+        expertHourlyRate: r.hourly_rate || 0,
+        expertCurrency: r.expert_currency || 'GBP',
+        userName: r.user_name || '',
+        userId: r.user_id,
+        avatarColor: r.avatar_color || '#6366f1',
+      }));
+    },
+
     myOrders: async (_, __, { user }) => {
       requireAuth(user);
       const orders = await getUserOrders(user.id);
@@ -606,6 +652,39 @@ export const resolvers = {
       // In production: initiate Stripe payout or PayPal transfer
       const cashout = await createCoinCashout({ id: uuid(), userId: user.id, coins, amount, currency, createdAt: new Date().toISOString() });
       return cashout;
+    },
+
+    applyExpertToGroup: async (_, { groupId, message }, { user }) => {
+      requireAuth(user);
+      const expert = await getExpertByUser(user.id);
+      if (!expert) throw new GraphQLError('Register as an expert first');
+      const row = await dbApplyExpertToGroup(expert.id, groupId, message || '');
+      const group = await getGroup(groupId, user.id);
+      return {
+        id: row.id, expertId: row.expert_id, groupId: row.group_id,
+        groupName: row.group_name || group?.name || '',
+        groupCategory: group?.category || '',
+        status: row.status, message: row.message || '',
+        createdAt: row.created_at,
+      };
+    },
+
+    reviewExpertGroupRequest: async (_, { expertId, groupId, status }, { user }) => {
+      requireAuth(user);
+      const group = await getGroup(groupId, user.id);
+      if (!group) throw new GraphQLError('Group not found');
+      const isAdmin = user.id === (group.adminId || group.creatorId) || user.role === 'ADMIN';
+      if (!isAdmin) throw new GraphQLError('Only group admin can review expert requests');
+      if (!['APPROVED', 'REJECTED'].includes(status)) throw new GraphQLError('Invalid status');
+      await updateExpertGroupRequest(expertId, groupId, status);
+      // Notify the expert
+      const expertUser = await getUser(
+        (await getExpertByUser(expertId) ? expertId : (await getExpert(expertId))?.userId) || expertId
+      ).catch(() => null);
+      if (expertUser) {
+        await createNotification({ id: uuid(), userId: expertUser.id, type: 'EXPERT_REQUEST', title: status === 'APPROVED' ? '🎉 Expert request approved!' : '❌ Expert request rejected', message: status === 'APPROVED' ? `You are now an expert in "${group.name}"` : `Your request to join "${group.name}" was not accepted`, groupId, actorId: user.id }).catch(() => {});
+      }
+      return true;
     },
 
     sendMessage: async (_, { groupId, content, messageType, videoUrl }, { user, pubsub }) => {

@@ -373,6 +373,16 @@ export async function initDB() {
     `ALTER TABLE experts ADD COLUMN IF NOT EXISTS rating_avg REAL DEFAULT NULL`,
     `ALTER TABLE experts ADD COLUMN IF NOT EXISTS rating_count INTEGER DEFAULT 0`,
     `ALTER TABLE experts ADD COLUMN IF NOT EXISTS total_sessions INTEGER DEFAULT 0`,
+    `CREATE TABLE IF NOT EXISTS expert_group_requests (
+      id TEXT PRIMARY KEY,
+      expert_id TEXT NOT NULL REFERENCES experts(id) ON DELETE CASCADE,
+      group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      status TEXT DEFAULT 'PENDING',
+      message TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(expert_id, group_id)
+    )`,
   ];
   for (const sql of migrations) {
     await pool.query(sql).catch(err => {
@@ -1205,6 +1215,105 @@ export async function exportUserData(userId) {
     tips: tips.rows,
     notifications: notifications.rows,
   };
+}
+
+// ── Expert ↔ Group matching ──────────────────────────────────────────────────
+
+// Find groups whose tags/category overlap with expert's skills
+export async function getMatchedGroupsForExpert(expertId) {
+  const { rows: expertRows } = await query(
+    'SELECT skills FROM experts WHERE id = $1', [expertId]
+  );
+  if (!expertRows.length) return [];
+  const skills = JSON.parse(expertRows[0].skills || '[]');
+  if (!skills.length) return [];
+
+  // Fetch all non-private groups and score by tag overlap
+  const { rows: groups } = await query(
+    `SELECT g.*,
+            (SELECT COUNT(*)::int FROM group_members WHERE group_id = g.id) AS member_count
+     FROM groups g
+     WHERE g.is_private = FALSE
+     ORDER BY g.created_at DESC`
+  );
+
+  const normalize = s => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normSkills = skills.map(normalize);
+
+  const scored = groups.map(g => {
+    const tags = JSON.parse(g.tags || '[]');
+    const cat = (g.category || '').toLowerCase();
+    const matches = normSkills.filter(sk =>
+      tags.some(t => normalize(t).includes(sk) || sk.includes(normalize(t))) ||
+      cat.includes(sk) || sk.includes(cat)
+    );
+    return { group: g, score: matches.length };
+  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+
+  return scored.map(x => ({ ...fmt.group(x.group), memberCount: x.group.member_count || 0, matchScore: x.score }));
+}
+
+export async function applyExpertToGroup(expertId, groupId, message = '') {
+  const { v4: uuidv4 } = await import('uuid');
+  const id = uuidv4();
+  await query(
+    `INSERT INTO expert_group_requests (id, expert_id, group_id, status, message)
+     VALUES ($1, $2, $3, 'PENDING', $4)
+     ON CONFLICT (expert_id, group_id) DO UPDATE SET status='PENDING', message=$4, updated_at=NOW()`,
+    [id, expertId, groupId, message]
+  );
+  const { rows } = await query(
+    `SELECT egr.*, e.user_id, g.name as group_name
+     FROM expert_group_requests egr
+     JOIN experts e ON e.id = egr.expert_id
+     JOIN groups g ON g.id = egr.group_id
+     WHERE egr.expert_id=$1 AND egr.group_id=$2`, [expertId, groupId]
+  );
+  return rows[0];
+}
+
+export async function getExpertGroupRequests(expertId) {
+  const { rows } = await query(
+    `SELECT egr.*, g.name as group_name, g.category as group_category, g.tags as group_tags
+     FROM expert_group_requests egr
+     JOIN groups g ON g.id = egr.group_id
+     WHERE egr.expert_id = $1
+     ORDER BY egr.created_at DESC`, [expertId]
+  );
+  return rows;
+}
+
+export async function getPendingExpertRequestsForGroup(groupId) {
+  const { rows } = await query(
+    `SELECT egr.*,
+            e.skills as expert_skills, e.headline as expert_headline,
+            e.service_type, e.hourly_rate, e.currency as expert_currency,
+            u.name as user_name, u.id as user_id, u.avatar_color
+     FROM expert_group_requests egr
+     JOIN experts e ON e.id = egr.expert_id
+     JOIN users u ON u.id = e.user_id
+     WHERE egr.group_id = $1 AND egr.status = 'PENDING'
+     ORDER BY egr.created_at DESC`, [groupId]
+  );
+  return rows;
+}
+
+export async function updateExpertGroupRequest(expertId, groupId, status) {
+  await query(
+    `UPDATE expert_group_requests SET status=$3, updated_at=NOW()
+     WHERE expert_id=$1 AND group_id=$2`, [expertId, groupId, status]
+  );
+  // If approved — add expert as a member of the group
+  if (status === 'APPROVED') {
+    const { rows } = await query('SELECT user_id FROM experts WHERE id=$1', [expertId]);
+    if (rows.length) {
+      await query(
+        `INSERT INTO group_members (group_id, user_id, joined_at) VALUES ($1,$2,NOW())
+         ON CONFLICT DO NOTHING`, [groupId, rows[0].user_id]
+      ).catch(() => {});
+    }
+  }
+  return true;
 }
 
 export async function auditLog(userId, action, ip, userAgent) {

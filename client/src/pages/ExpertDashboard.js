@@ -6,6 +6,7 @@ import {
   MY_EXPERT_PROFILE_QUERY, EXPERT_BOOKINGS_QUERY,
   REGISTER_AS_EXPERT_MUTATION, UPDATE_EXPERT_PROFILE_MUTATION,
   CONFIRM_BOOKING_MUTATION, CANCEL_BOOKING_MUTATION, COMPLETE_BOOKING_MUTATION,
+  MATCHED_GROUPS_QUERY, APPLY_EXPERT_TO_GROUP_MUTATION,
 } from '../graphql';
 
 const COMMON_SKILLS = ['Guitar','Piano','Painting','Chess','Yoga','Cooking','Photography','Programming','Writing','Dancing','Drawing','Gardening','Running','Singing','Crafts'];
@@ -65,14 +66,81 @@ function BookingCard({ booking, expertUserId, onRefetch }) {
   );
 }
 
+const STATUS_BADGE = {
+  APPROVED: { bg: 'rgba(16,185,129,0.12)', color: '#10b981', label: '✅ Approved' },
+  PENDING:  { bg: 'rgba(245,158,11,0.12)',  color: '#f59e0b', label: '⏳ Pending' },
+  REJECTED: { bg: 'rgba(239,68,68,0.12)',   color: '#ef4444', label: '❌ Rejected' },
+};
+
+function GroupMatchCard({ group, applyMsg, setApplyMsg, applyDone, applyMut, applying }) {
+  const [showMsg, setShowMsg] = useState(false);
+  const status = applyDone[group.id] || group.requestStatus;
+  const badge = status ? STATUS_BADGE[status] : null;
+
+  return (
+    <div className="card" style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
+          <Link to={`/group/${group.id}`} style={{ fontWeight: 700, fontSize: 'var(--font-base)' }}>{group.name}</Link>
+          <span className="badge badge-dim" style={{ fontSize: 11 }}>{group.category}</span>
+          <span className="badge badge-dim" style={{ fontSize: 11 }}>👥 {group.memberCount}</span>
+          <span style={{ fontSize: 11, background: 'rgba(99,102,241,0.1)', color: 'var(--primary)', borderRadius: 99, padding: '2px 8px', fontWeight: 700 }}>
+            🎯 {group.matchScore} skill match{group.matchScore !== 1 ? 'es' : ''}
+          </span>
+          {badge && <span style={{ fontSize: 11, background: badge.bg, color: badge.color, borderRadius: 99, padding: '2px 8px', fontWeight: 700 }}>{badge.label}</span>}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {group.tags.slice(0, 5).map(t => <span key={t} className="badge badge-dim" style={{ fontSize: 11 }}>{t}</span>)}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+        {!status && !showMsg && (
+          <button className="btn btn-primary btn-sm" onClick={() => setShowMsg(true)}>Apply as Expert</button>
+        )}
+        {!status && showMsg && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 240 }}>
+            <textarea className="input" rows={2} style={{ fontSize: 13, padding: '8px 10px' }}
+              placeholder="Optional: introduce yourself to the group admin…"
+              value={applyMsg[group.id] || ''}
+              onChange={e => setApplyMsg(prev => ({ ...prev, [group.id]: e.target.value }))} />
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => setShowMsg(false)}>Cancel</button>
+              <button className="btn btn-primary btn-sm" style={{ flex: 2 }} disabled={applying}
+                onClick={() => applyMut({ variables: { groupId: group.id, message: applyMsg[group.id] || '' } })}>
+                {applying ? 'Sending…' : '📨 Send Request'}
+              </button>
+            </div>
+          </div>
+        )}
+        {status === 'APPROVED' && <span style={{ fontSize: 13, color: '#10b981', fontWeight: 600 }}>Active expert ✓</span>}
+        {status === 'PENDING' && <span style={{ fontSize: 13, color: '#f59e0b', fontWeight: 600 }}>Awaiting approval…</span>}
+        {status === 'REJECTED' && (
+          <button className="btn btn-ghost btn-sm" onClick={() => { applyMut({ variables: { groupId: group.id, message: '' } }); }}>Re-apply</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ExpertDashboard() {
   const { currentUser, updateCurrentUser } = useAuth();
   const [registering, setRegistering] = useState(false);
+  const [tab, setTab] = useState('bookings');
+  const [applyMsg, setApplyMsg] = useState({});
+  const [applyDone, setApplyDone] = useState({});
   const [form, setForm] = useState({ headline: '', bio: '', skills: [], serviceType: 'PAID', hourlyRate: 50, currency: 'GBP', availability: 'Weekends', isElderSupport: false });
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const { data: expertData, loading: expertLoading, refetch: refetchExpert } = useQuery(MY_EXPERT_PROFILE_QUERY);
   const { data: bookingsData, loading: bookingsLoading, refetch: refetchBookings } = useQuery(EXPERT_BOOKINGS_QUERY, { skip: !expertData?.myExpertProfile });
+  const { data: matchData, loading: matchLoading, refetch: refetchMatch } = useQuery(MATCHED_GROUPS_QUERY, { skip: !expertData?.myExpertProfile, fetchPolicy: 'cache-and-network' });
+  const [applyMut, { loading: applying }] = useMutation(APPLY_EXPERT_TO_GROUP_MUTATION, {
+    onCompleted: (d) => {
+      setApplyDone(prev => ({ ...prev, [d.applyExpertToGroup.groupId]: d.applyExpertToGroup.status }));
+      refetchMatch();
+    },
+  });
 
   const [registerAsExpert, { loading: regLoading }] = useMutation(REGISTER_AS_EXPERT_MUTATION, {
     onCompleted: () => {
@@ -222,8 +290,13 @@ export default function ExpertDashboard() {
             </div>
 
             {/* Stats */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
-              {[{ label: 'Pending', value: pending.length, color: '#f59e0b' }, { label: 'Upcoming', value: upcoming.length, color: '#6366f1' }, { label: 'Completed', value: past.filter(b => b.status === 'COMPLETED').length, color: '#10b981' }].map(s => (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+              {[
+                { label: 'Pending', value: pending.length, color: '#f59e0b' },
+                { label: 'Upcoming', value: upcoming.length, color: '#6366f1' },
+                { label: 'Completed', value: past.filter(b => b.status === 'COMPLETED').length, color: '#10b981' },
+                { label: 'Groups', value: (matchData?.matchedGroupsForExpert || []).filter(g => g.requestStatus === 'APPROVED').length, color: '#ec4899' },
+              ].map(s => (
                 <div key={s.label} className="card" style={{ textAlign: 'center', padding: '16px 12px' }}>
                   <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{s.label}</div>
@@ -231,18 +304,90 @@ export default function ExpertDashboard() {
               ))}
             </div>
 
-            {/* Bookings */}
-            <div className="card">
-              <h3 style={{ fontWeight: 800, marginBottom: 16 }}>📋 Bookings</h3>
-              {bookingsLoading ? <div className="loading-center"><div className="spinner" /></div> : (
-                <>
-                  {pending.length > 0 && <><div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', marginBottom: 8, letterSpacing: 1 }}>Awaiting Confirmation</div>{pending.map(b => <BookingCard key={b.id} booking={b} expertUserId={currentUser.id} onRefetch={refetchBookings} />)}</>}
-                  {upcoming.length > 0 && <><div style={{ fontSize: 12, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', marginBottom: 8, marginTop: 16, letterSpacing: 1 }}>Upcoming Sessions</div>{upcoming.map(b => <BookingCard key={b.id} booking={b} expertUserId={currentUser.id} onRefetch={refetchBookings} />)}</>}
-                  {past.length > 0 && <><div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8, marginTop: 16, letterSpacing: 1 }}>Past</div>{past.slice(0, 10).map(b => <BookingCard key={b.id} booking={b} expertUserId={currentUser.id} onRefetch={refetchBookings} />)}</>}
-                  {bookings.length === 0 && <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}><div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>No bookings yet. Share your profile to attract clients!</div>}
-                </>
-              )}
+            {/* Tabs */}
+            <div className="tabs" style={{ marginBottom: 20 }}>
+              <button className={`tab ${tab === 'bookings' ? 'active' : ''}`} onClick={() => setTab('bookings')}>📋 Bookings {bookings.length > 0 && `(${bookings.length})`}</button>
+              <button className={`tab ${tab === 'groups' ? 'active' : ''}`} onClick={() => setTab('groups')}>
+                🏘️ My Groups
+                {matchData?.matchedGroupsForExpert?.some(g => !g.requestStatus) && (
+                  <span style={{ marginLeft: 6, background: 'var(--primary)', color: '#fff', borderRadius: 99, fontSize: 11, padding: '1px 7px' }}>
+                    {matchData.matchedGroupsForExpert.filter(g => !g.requestStatus).length} matched
+                  </span>
+                )}
+              </button>
             </div>
+
+            {/* Bookings tab */}
+            {tab === 'bookings' && (
+              <div className="card">
+                {bookingsLoading ? <div className="loading-center"><div className="spinner" /></div> : (
+                  <>
+                    {pending.length > 0 && <><div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', marginBottom: 8, letterSpacing: 1 }}>Awaiting Confirmation</div>{pending.map(b => <BookingCard key={b.id} booking={b} expertUserId={currentUser.id} onRefetch={refetchBookings} />)}</>}
+                    {upcoming.length > 0 && <><div style={{ fontSize: 12, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', marginBottom: 8, marginTop: 16, letterSpacing: 1 }}>Upcoming Sessions</div>{upcoming.map(b => <BookingCard key={b.id} booking={b} expertUserId={currentUser.id} onRefetch={refetchBookings} />)}</>}
+                    {past.length > 0 && <><div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8, marginTop: 16, letterSpacing: 1 }}>Past</div>{past.slice(0, 10).map(b => <BookingCard key={b.id} booking={b} expertUserId={currentUser.id} onRefetch={refetchBookings} />)}</>}
+                    {bookings.length === 0 && <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}><div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>No bookings yet. Share your profile to attract clients!</div>}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Groups tab */}
+            {tab === 'groups' && (
+              <div>
+                <div className="card" style={{ marginBottom: 16, background: 'rgba(99,102,241,0.05)', border: '1.5px solid rgba(99,102,241,0.2)' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>🎯 How group matching works</div>
+                  <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                    Groups below are matched to your skills. Apply to join as the resident expert — the group admin will review and approve. Once approved, you appear in the group's expert panel and members can book you directly.
+                  </div>
+                </div>
+
+                {matchLoading && <div className="loading-center"><div className="spinner" /></div>}
+
+                {/* Approved groups */}
+                {(matchData?.matchedGroupsForExpert || []).filter(g => g.requestStatus === 'APPROVED').length > 0 && (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>✅ Active Expert In</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {(matchData?.matchedGroupsForExpert || []).filter(g => g.requestStatus === 'APPROVED').map(g => (
+                        <GroupMatchCard key={g.id} group={g} expert={expert} applyMsg={applyMsg} setApplyMsg={setApplyMsg} applyDone={applyDone} applyMut={applyMut} applying={applying} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Pending */}
+                {(matchData?.matchedGroupsForExpert || []).filter(g => g.requestStatus === 'PENDING').length > 0 && (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>⏳ Awaiting Admin Approval</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {(matchData?.matchedGroupsForExpert || []).filter(g => g.requestStatus === 'PENDING').map(g => (
+                        <GroupMatchCard key={g.id} group={g} expert={expert} applyMsg={applyMsg} setApplyMsg={setApplyMsg} applyDone={applyDone} applyMut={applyMut} applying={applying} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* New matches */}
+                {(matchData?.matchedGroupsForExpert || []).filter(g => !g.requestStatus).length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>🎯 Matched Groups — Apply Now</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {(matchData?.matchedGroupsForExpert || []).filter(g => !g.requestStatus).map(g => (
+                        <GroupMatchCard key={g.id} group={g} expert={expert} applyMsg={applyMsg} setApplyMsg={setApplyMsg} applyDone={applyDone} applyMut={applyMut} applying={applying} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!matchLoading && (matchData?.matchedGroupsForExpert || []).length === 0 && (
+                  <div className="empty-state">
+                    <div className="empty-state-icon">🔍</div>
+                    <div className="empty-state-title">No matching groups yet</div>
+                    <div className="empty-state-desc">Add more skills to your profile to get matched with relevant groups.</div>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

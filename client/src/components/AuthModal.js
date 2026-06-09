@@ -56,7 +56,8 @@ export default function AuthModal({ mode: initialMode, onClose }) {
   const [mode, setMode] = useState(initialMode);
   // Steps: 1 = account details, 2 = location, 3 = role intent (register only)
   const [step, setStep] = useState(1);
-  const [joinAs, setJoinAs] = useState('USER');
+  const pendingRole = sessionStorage.getItem('pendingRole');
+  const [joinAs, setJoinAs] = useState(pendingRole === 'expert' ? 'EXPERT' : pendingRole === 'seller' ? 'SELLER' : 'USER');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [form, setForm] = useState({

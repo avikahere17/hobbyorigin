@@ -244,6 +244,36 @@ export const typeDefs = `#graphql
     product: Product
   }
 
+  type ExpertGroupRequest {
+    id: ID!
+    expertId: ID!
+    groupId: ID!
+    groupName: String!
+    groupCategory: String!
+    status: String!   # PENDING | APPROVED | REJECTED
+    message: String!
+    createdAt: String!
+    # For group admin view:
+    expertHeadline: String
+    expertSkills: [String!]
+    expertServiceType: String
+    expertHourlyRate: Int
+    expertCurrency: String
+    userName: String
+    userId: ID
+    avatarColor: String
+  }
+
+  type MatchedGroup {
+    id: ID!
+    name: String!
+    category: String!
+    tags: [String!]!
+    memberCount: Int!
+    matchScore: Int!
+    requestStatus: String   # PENDING | APPROVED | REJECTED | null
+  }
+
   type CoinCashout {
     id: ID!
     userId: ID!
@@ -339,6 +369,9 @@ export const typeDefs = `#graphql
     myNotifications: [Notification!]!
     myWallet: Wallet!
     myOrders: [ProductOrder!]!
+    matchedGroupsForExpert: [MatchedGroup!]!
+    myExpertGroupRequests: [ExpertGroupRequest!]!
+    pendingExpertRequestsForGroup(groupId: ID!): [ExpertGroupRequest!]!
     groupEvents(groupId: ID!): [Event!]!
     groupProducts(groupId: ID!): [Product!]!
     groupCampaigns(groupId: ID!): [Campaign!]!
@@ -372,6 +405,8 @@ export const typeDefs = `#graphql
     buyProductWithCoins(productId: ID!, quantity: Int, deliveryAddress: String): ProductOrder!
     buyProductWithCard(productId: ID!, quantity: Int, paymentIntentId: String!, deliveryAddress: String): ProductOrder!
     cashoutCoins(coins: Int!): CoinCashout!
+    applyExpertToGroup(groupId: ID!, message: String): ExpertGroupRequest!
+    reviewExpertGroupRequest(expertId: ID!, groupId: ID!, status: String!): Boolean!
     sendMessage(groupId: ID!, content: String!, messageType: MessageType, videoUrl: String): Message!
     sendBuddyRequest(toUserId: ID!): Boolean!
     markNotificationsRead: Boolean!

@@ -12,7 +12,7 @@ import {
   CREATE_EVENT_MUTATION, CREATE_PRODUCT_MUTATION, CREATE_CAMPAIGN_MUTATION,
   DELETE_GROUP_MUTATION, MAKE_GROUP_PRIVATE_MUTATION, ASSIGN_GROUP_ADMIN_MUTATION,
   BUY_WITH_COINS_MUTATION, BUY_WITH_CARD_MUTATION, CREATE_PAYMENT_INTENT_MUTATION,
-  MY_WALLET_FULL_QUERY,
+  MY_WALLET_FULL_QUERY, PENDING_EXPERT_REQUESTS_QUERY, REVIEW_EXPERT_REQUEST_MUTATION,
 } from '../graphql';
 import { formatCurrency, formatTicketPrice } from '../utils/currency';
 
@@ -189,6 +189,13 @@ export default function GroupDetail({ onAuthRequired }) {
   const [deleteGroupMut] = useMutation(DELETE_GROUP_MUTATION);
   const [makeGroupPrivateMut] = useMutation(MAKE_GROUP_PRIVATE_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
   const [assignGroupAdminMut] = useMutation(ASSIGN_GROUP_ADMIN_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
+  const { data: expertReqData, refetch: refetchExpertReqs } = useQuery(PENDING_EXPERT_REQUESTS_QUERY, {
+    variables: { groupId: id }, skip: !currentUser,
+    fetchPolicy: 'cache-and-network',
+  });
+  const [reviewExpertReq] = useMutation(REVIEW_EXPERT_REQUEST_MUTATION, {
+    onCompleted: () => refetchExpertReqs(),
+  });
   const [registerForEvent] = useMutation(REGISTER_FOR_EVENT_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
   const [unregisterFromEvent] = useMutation(UNREGISTER_FROM_EVENT_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
 
@@ -552,6 +559,48 @@ export default function GroupDetail({ onAuthRequired }) {
                 )}
               </div>
             </div>
+
+            {/* Expert Requests */}
+            {(() => {
+              const reqs = expertReqData?.pendingExpertRequestsForGroup || [];
+              return reqs.length > 0 ? (
+                <div className="card" style={{ background: 'rgba(99,102,241,0.05)', border: '1.5px solid rgba(99,102,241,0.2)', marginBottom: 12 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 10 }}>🎓 Expert Join Requests <span style={{ background: 'var(--primary)', color: '#fff', borderRadius: 99, fontSize: 11, padding: '2px 8px', marginLeft: 6 }}>{reqs.length}</span></div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {reqs.map(r => (
+                      <div key={r.id} style={{ background: 'var(--bg)', borderRadius: 'var(--radius-sm)', padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 6 }}>
+                          <div style={{ width: 32, height: 32, borderRadius: '50%', background: r.avatarColor || '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
+                            {(r.userName || 'E')[0]}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 700, fontSize: 'var(--font-sm)' }}>{r.userName}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.expertHeadline}</div>
+                          </div>
+                          <span className="badge badge-dim" style={{ fontSize: 11 }}>{r.expertServiceType === 'CHARITY' ? '🆓 Free' : `💰 ${r.expertHourlyRate} ${r.expertCurrency}/hr`}</span>
+                        </div>
+                        {r.expertSkills?.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                            {r.expertSkills.map(s => <span key={s} className="badge badge-primary" style={{ fontSize: 11 }}>{s}</span>)}
+                          </div>
+                        )}
+                        {r.message && <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', marginBottom: 8 }}>"{r.message}"</div>}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="btn btn-sm" style={{ background: '#10b981', color: '#fff', flex: 1 }}
+                            onClick={() => reviewExpertReq({ variables: { expertId: r.expertId, groupId: id, status: 'APPROVED' } })}>
+                            ✅ Approve
+                          </button>
+                          <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff', flex: 1 }}
+                            onClick={() => reviewExpertReq({ variables: { expertId: r.expertId, groupId: id, status: 'REJECTED' } })}>
+                            ❌ Reject
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null;
+            })()}
 
             {/* Leave / Delete */}
             <div className="card" style={{ background: 'rgba(239,68,68,0.06)', border: '1.5px solid rgba(239,68,68,0.2)' }}>

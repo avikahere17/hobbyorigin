@@ -332,3 +332,24 @@ export const BUY_WITH_CARD_MUTATION = gql`mutation BuyWithCard($productId:ID!,$q
 export const CASHOUT_COINS_MUTATION = gql`mutation CashoutCoins($coins:Int!) {
   cashoutCoins(coins:$coins) { id coins amount currency status createdAt }
 }`;
+
+export const MATCHED_GROUPS_QUERY = gql`query MatchedGroupsForExpert {
+  matchedGroupsForExpert { id name category tags memberCount matchScore requestStatus }
+  myExpertGroupRequests { id groupId groupName groupCategory status message createdAt }
+}`;
+
+export const APPLY_EXPERT_TO_GROUP_MUTATION = gql`mutation ApplyExpertToGroup($groupId:ID!,$message:String) {
+  applyExpertToGroup(groupId:$groupId,message:$message) { id groupId groupName status message createdAt }
+}`;
+
+export const REVIEW_EXPERT_REQUEST_MUTATION = gql`mutation ReviewExpertRequest($expertId:ID!,$groupId:ID!,$status:String!) {
+  reviewExpertGroupRequest(expertId:$expertId,groupId:$groupId,status:$status)
+}`;
+
+export const PENDING_EXPERT_REQUESTS_QUERY = gql`query PendingExpertRequests($groupId:ID!) {
+  pendingExpertRequestsForGroup(groupId:$groupId) {
+    id expertId groupId status message createdAt
+    expertHeadline expertSkills expertServiceType expertHourlyRate expertCurrency
+    userName userId avatarColor
+  }
+}`;
