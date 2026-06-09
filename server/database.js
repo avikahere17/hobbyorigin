@@ -366,6 +366,19 @@ export async function initDB() {
     ON CONFLICT (id) DO NOTHING
   `, [SYSTEM_ID, new Date().toISOString()]).catch(() => {});
 
+  // ── Promote platform owner to ADMIN ───────────────────────────────────────
+  const OWNER_EMAIL = process.env.OWNER_EMAIL || 'avikahere17@gmail.com';
+  await pool.query(`UPDATE users SET role='ADMIN' WHERE email=$1 AND role!='ADMIN'`, [OWNER_EMAIL])
+    .catch(() => {});
+
+  // ── Delete E2E test accounts (cleanup after CI runs) ──────────────────────
+  // Test accounts use @hobbytest.dev domain and are safe to auto-remove on deploy
+  const { rows: testUsers } = await pool.query(`SELECT id FROM users WHERE email LIKE '%@hobbytest.dev'`).catch(() => ({ rows: [] }));
+  for (const tu of testUsers) {
+    await deleteUserData(tu.id).catch(() => {});
+  }
+  if (testUsers.length > 0) console.log(`🧹 Cleaned up ${testUsers.length} E2E test account(s)`);
+
   // ── Auto-seed groups if the DB is empty or was wiped ─────────────────────
   const { rows: gc } = await pool.query(`SELECT COUNT(*) as c FROM groups WHERE is_seeded=TRUE`).catch(() => ({ rows: [{ c: '1' }] }));
   if (parseInt(gc[0].c) === 0) {
