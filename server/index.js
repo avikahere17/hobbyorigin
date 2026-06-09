@@ -44,9 +44,9 @@ class PubSub {
   publish(event, payload) { (this.subs[event]||[]).forEach(p=>p(payload)); }
 }
 
-function getUserFromToken(token) {
+async function getUserFromToken(token) {
   if (!token) return null;
-  try { const { userId } = jwt.verify(token, JWT_SECRET); return getUser(userId); } catch { return null; }
+  try { const { userId } = jwt.verify(token, JWT_SECRET); return await getUser(userId); } catch { return null; }
 }
 
 async function main() {
@@ -63,9 +63,9 @@ async function main() {
   const wsServer = new WebSocketServer({ server: httpServer, path: '/graphql' });
   const serverCleanup = useServer({
     schema,
-    context: ctx => {
+    context: async ctx => {
       const token = ctx.connectionParams?.Authorization?.replace('Bearer ','') || '';
-      return { user: getUserFromToken(token), pubsub };
+      return { user: await getUserFromToken(token), pubsub };
     },
   }, wsServer);
 
@@ -88,7 +88,7 @@ async function main() {
   }), bodyParser.json(), expressMiddleware(server, {
     context: async ({ req }) => {
       const token = (req.headers.authorization||'').replace('Bearer ','');
-      return { user: getUserFromToken(token), pubsub };
+      return { user: await getUserFromToken(token), pubsub };
     },
   }));
 
