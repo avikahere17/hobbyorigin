@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>HobbyOrigin — Logo Assets</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', sans-serif; background: #0d0d1a; color: #e8e8f5; min-height: 100vh; padding: 40px 24px; }
+    h1 { font-size: 28px; font-weight: 800; margin-bottom: 8px; }
+    .subtitle { color: #8888aa; font-size: 15px; margin-bottom: 48px; }
+    .section { margin-bottom: 56px; }
+    .section-title { font-size: 13px; font-weight: 700; letter-spacing: 2px; color: #8888aa; text-transform: uppercase; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .logo-row { display: flex; flex-wrap: wrap; gap: 24px; }
+    .logo-card { border-radius: 16px; padding: 40px 48px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; min-width: 260px; }
+    .logo-card.dark { background: #13131f; border: 1px solid rgba(255,255,255,0.08); }
+    .logo-card.mid { background: #1e1b4b; border: 1px solid rgba(99,102,241,0.3); }
+    .logo-card.white { background: white; border: 1px solid #e5e7eb; }
+    .logo-card.black { background: #000; border: 1px solid rgba(255,255,255,0.1); }
+    .logo-label { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: #8888aa; }
+    .logo-card.white .logo-label { color: #888; }
+    .usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+    .usage-card { background: #13131f; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px; }
+    .usage-card h4 { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: #a78bfa; }
+    .usage-card p { font-size: 13px; color: #8888aa; line-height: 1.6; }
+    .usage-card code { background: rgba(99,102,241,0.15); color: #c4b5fd; padding: 1px 6px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+    .color-row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .color-swatch { border-radius: 10px; width: 100px; height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 8px; }
+    .color-swatch span { font-size: 10px; font-weight: 700; background: rgba(0,0,0,0.4); color: white; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.5px; }
+    .download-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 32px; }
+    .dl-btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.4); border-radius: 10px; color: #a78bfa; font-size: 13px; font-weight: 600; text-decoration: none; transition: all 0.2s; }
+    .dl-btn:hover { background: rgba(99,102,241,0.25); }
+    img { max-width: 100%; height: auto; }
+  </style>
+</head>
+<body>
+
+<h1>🔗 HobbyOrigin — Brand Logo Assets</h1>
+<p class="subtitle">All logo variants · SVG format · Ready for web, print, and social media</p>
+
+<!-- PRIMARY LOGO -->
+<div class="section">
+  <div class="section-title">Primary Logo — Dark Background</div>
+  <div class="logo-row">
+    <div class="logo-card dark">
+      <img src="logo-primary.svg" width="360" alt="HobbyOrigin Primary Logo"/>
+      <span class="logo-label">logo-primary.svg · 520×120</span>
+    </div>
+    <div class="logo-card mid">
+      <img src="logo-primary.svg" width="320" alt="HobbyOrigin Primary Logo"/>
+      <span class="logo-label">On brand purple</span>
+    </div>
+    <div class="logo-card black">
+      <img src="logo-primary.svg" width="280" alt="HobbyOrigin Primary Logo"/>
+      <span class="logo-label">On black</span>
+    </div>
+  </div>
+</div>
+
+<!-- HORIZONTAL LOGO -->
+<div class="section">
+  <div class="section-title">Horizontal Logo — One-line Wordmark</div>
+  <div class="logo-row">
+    <div class="logo-card dark">
+      <img src="logo-horizontal.svg" width="320" alt="HobbyOrigin Horizontal Logo"/>
+      <span class="logo-label">logo-horizontal.svg · 400×80</span>
+    </div>
+    <div class="logo-card white">
+      <img src="logo-white-bg.svg" width="320" alt="HobbyOrigin on White"/>
+      <span class="logo-label" style="color:#888">logo-white-bg.svg · Light backgrounds</span>
+    </div>
+  </div>
+</div>
+
+<!-- ICON ONLY -->
+<div class="section">
+  <div class="section-title">Icon Mark — Square / App Icon</div>
+  <div class="logo-row">
+    <div class="logo-card dark">
+      <img src="logo-icon.svg" width="120" alt="HobbyOrigin Icon"/>
+      <span class="logo-label">logo-icon.svg · 120×120</span>
+    </div>
+    <div class="logo-card dark">
+      <img src="logo-icon.svg" width="80" alt="HobbyOrigin Icon 80px"/>
+      <span class="logo-label">80px — Nav / Header</span>
+    </div>
+    <div class="logo-card dark">
+      <img src="logo-icon.svg" width="48" alt="HobbyOrigin Icon 48px"/>
+      <span class="logo-label">48px — Favicon size</span>
+    </div>
+    <div class="logo-card dark">
+      <img src="logo-icon.svg" width="32" alt="HobbyOrigin Icon 32px"/>
+      <span class="logo-label">32px — Tab icon</span>
+    </div>
+  </div>
+</div>
+
+<!-- BRAND COLOURS -->
+<div class="section">
+  <div class="section-title">Brand Colour Palette</div>
+  <div class="color-row">
+    <div class="color-swatch" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)"><span>#6366f1</span></div>
+    <div class="color-swatch" style="background:linear-gradient(135deg,#8b5cf6,#a78bfa)"><span>#8b5cf6</span></div>
+    <div class="color-swatch" style="background:linear-gradient(135deg,#a78bfa,#c4b5fd)"><span>#a78bfa</span></div>
+    <div class="color-swatch" style="background:linear-gradient(135deg,#d946ef,#ec4899)"><span>#ec4899</span></div>
+    <div class="color-swatch" style="background:linear-gradient(135deg,#ec4899,#f472b6)"><span>#f472b6</span></div>
+    <div class="color-swatch" style="background:#0d0d1a;border:1px solid rgba(255,255,255,0.1)"><span>#0d0d1a</span></div>
+    <div class="color-swatch" style="background:#1e1b4b;border:1px solid rgba(255,255,255,0.1)"><span>#1e1b4b</span></div>
+    <div class="color-swatch" style="background:white;border:1px solid #e5e7eb"><span style="color:#333;background:rgba(255,255,255,0.8)">#ffffff</span></div>
+  </div>
+</div>
+
+<!-- USAGE GUIDE -->
+<div class="section">
+  <div class="section-title">Usage Guide</div>
+  <div class="usage-grid">
+    <div class="usage-card">
+      <h4>🌐 Website header</h4>
+      <p>Use <code>logo-horizontal.svg</code> at 180–220px wide. Always on dark background (<code>#0d0d1a</code> or <code>#13131f</code>).</p>
+    </div>
+    <div class="usage-card">
+      <h4>📱 Mobile app</h4>
+      <p>Use <code>logo-icon.svg</code> at 48×48px for navigation, 120×120px for splash/onboarding screens.</p>
+    </div>
+    <div class="usage-card">
+      <h4>💼 LinkedIn company page</h4>
+      <p>Logo: <code>logo-icon.svg</code> exported at <strong>300×300px PNG</strong>. Banner: use gradient dark background with wordmark.</p>
+    </div>
+    <div class="usage-card">
+      <h4>🖨️ Print / Documents</h4>
+      <p>Use <code>logo-white-bg.svg</code> for light backgrounds (PDFs, pitch decks, business cards).</p>
+    </div>
+    <div class="usage-card">
+      <h4>🐦 Social media avatar</h4>
+      <p>Export <code>logo-icon.svg</code> as <strong>400×400px PNG</strong>. Works for LinkedIn, Twitter/X, Instagram, WhatsApp.</p>
+    </div>
+    <div class="usage-card">
+      <h4>📊 Pitch deck</h4>
+      <p>Use <code>logo-primary.svg</code> on the title slide. Use <code>logo-horizontal.svg</code> in headers of subsequent slides.</p>
+    </div>
+  </div>
+</div>
+
+<!-- DOWNLOAD -->
+<div class="section">
+  <div class="section-title">Files</div>
+  <p style="color:#8888aa;font-size:14px;margin-bottom:16px">All files are SVG (scalable to any size without quality loss). Export to PNG using any browser, Figma, or Inkscape.</p>
+  <div class="download-row">
+    <a class="dl-btn" href="logo-primary.svg" download>⬇ logo-primary.svg</a>
+    <a class="dl-btn" href="logo-horizontal.svg" download>⬇ logo-horizontal.svg</a>
+    <a class="dl-btn" href="logo-white-bg.svg" download>⬇ logo-white-bg.svg</a>
+    <a class="dl-btn" href="logo-icon.svg" download>⬇ logo-icon.svg</a>
+  </div>
+</div>
+
+</body>
+</html>

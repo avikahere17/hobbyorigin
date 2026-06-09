@@ -4,7 +4,14 @@ import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
 import { getMainDefinition } from '@apollo/client/utilities';
 import { createClient } from 'graphql-ws';
 
-const httpLink = createHttpLink({ uri: 'http://localhost:4000/graphql' });
+// In production: set REACT_APP_API_URL in Netlify environment variables
+// e.g. REACT_APP_API_URL=https://api.hobbyorigin.com
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000';
+
+const httpUrl = `${API_BASE}/graphql`;
+const wsUrl = httpUrl.replace(/^https?/, (p) => (p === 'https' ? 'wss' : 'ws'));
+
+const httpLink = createHttpLink({ uri: httpUrl });
 
 const authLink = setContext((_, { headers }) => {
   const token = localStorage.getItem('hc_token');
@@ -13,7 +20,7 @@ const authLink = setContext((_, { headers }) => {
 
 const wsLink = new GraphQLWsLink(
   createClient({
-    url: 'ws://localhost:4000/graphql',
+    url: wsUrl,
     connectionParams: () => {
       const token = localStorage.getItem('hc_token');
       return { Authorization: token ? `Bearer ${token}` : '' };

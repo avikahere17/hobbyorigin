@@ -16,6 +16,16 @@ import { getUser } from './database.js';
 const JWT_SECRET = process.env.JWT_SECRET || 'hobbyorigin_secret_2024';
 const PORT = process.env.PORT || 4000;
 
+// Allowed origins: local dev + production domains
+const ALLOWED_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://hobbyorigin.com',
+  'https://www.hobbyorigin.com',
+  'https://app.hobbyorigin.com',
+  ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : []),
+];
+
 class PubSub {
   constructor() { this.subs = {}; }
   asyncIterableIterator(event) {
@@ -64,7 +74,14 @@ async function main() {
   });
   await server.start();
 
-  app.use('/graphql', cors({ origin: '*', credentials: true }), bodyParser.json(), expressMiddleware(server, {
+  app.use('/graphql', cors({
+    origin: (origin, cb) => {
+      // allow requests with no origin (mobile apps, curl, Postman)
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      cb(new Error(`CORS: origin ${origin} not allowed`));
+    },
+    credentials: true,
+  }), bodyParser.json(), expressMiddleware(server, {
     context: async ({ req }) => {
       const token = (req.headers.authorization||'').replace('Bearer ','');
       return { user: getUserFromToken(token), pubsub };
