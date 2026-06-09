@@ -353,3 +353,31 @@ export const PENDING_EXPERT_REQUESTS_QUERY = gql`query PendingExpertRequests($gr
     userName userId avatarColor
   }
 }`;
+
+export const SEARCH_PLATFORM_USERS_QUERY = gql`query SearchPlatformUsers($search:String!,$groupId:ID!) {
+  searchPlatformUsers(search:$search,groupId:$groupId) { id name email avatarColor city role ageGroup isMember }
+}`;
+
+export const FIND_EXPERTS_FOR_GROUP_QUERY = gql`query FindExpertsForGroup($groupId:ID!,$search:String) {
+  findExpertsForGroup(groupId:$groupId,search:$search) { id userId name avatarColor headline skills serviceType hourlyRate currency ratingAvg ratingCount isElderSupport isVerified matchScore alreadyRequested }
+}`;
+
+export const GROUP_INVITATIONS_QUERY = gql`query GroupInvitations($groupId:ID!) {
+  groupInvitations(groupId:$groupId) { id groupId invitedUserId userName avatarColor userRole message status createdAt }
+}`;
+
+export const MY_GROUP_INVITATIONS_QUERY = gql`query MyGroupInvitations {
+  myGroupInvitations { id groupId groupName groupCategory inviterName message status createdAt }
+}`;
+
+export const INVITE_USER_MUTATION = gql`mutation InviteUser($groupId:ID!,$userId:ID!,$message:String) {
+  inviteUserToGroup(groupId:$groupId,userId:$userId,message:$message)
+}`;
+
+export const INVITE_EXPERT_MUTATION = gql`mutation InviteExpert($groupId:ID!,$expertId:ID!,$message:String) {
+  inviteExpertToGroup(groupId:$groupId,expertId:$expertId,message:$message)
+}`;
+
+export const ACCEPT_INVITE_MUTATION = gql`mutation AcceptInvite($groupId:ID!) {
+  acceptGroupInvitation(groupId:$groupId)
+}`;

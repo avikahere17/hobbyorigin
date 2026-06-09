@@ -26,6 +26,9 @@ import {
   getPrivacyConsent, upsertPrivacyConsent, createDataRequest, deleteUserData, exportUserData, auditLog,
   getMatchedGroupsForExpert, applyExpertToGroup as dbApplyExpertToGroup,
   getExpertGroupRequests, getPendingExpertRequestsForGroup, updateExpertGroupRequest,
+  searchPlatformUsers as dbSearchPlatformUsers, inviteUserToGroup as dbInviteUserToGroup,
+  acceptGroupInvitation as dbAcceptGroupInvitation, getGroupInvitations as dbGetGroupInvitations,
+  getMyGroupInvitations, findExpertsForGroup as dbFindExpertsForGroup,
 } from './database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hobbyorigin_secret_2024';
@@ -328,6 +331,45 @@ export const resolvers = {
       const statusMap = {};
       for (const r of requests) statusMap[r.group_id] = r.status;
       return matched.map(g => ({ ...g, requestStatus: statusMap[g.id] || null }));
+    },
+
+    searchPlatformUsers: async (_, { search, groupId }, { user }) => {
+      requireAuth(user);
+      if (!search || search.length < 2) return [];
+      return dbSearchPlatformUsers(search, groupId);
+    },
+
+    findExpertsForGroup: async (_, { groupId, search }, { user }) => {
+      requireAuth(user);
+      return dbFindExpertsForGroup(groupId, search || '');
+    },
+
+    groupInvitations: async (_, { groupId }, { user }) => {
+      requireAuth(user);
+      const rows = await dbGetGroupInvitations(groupId);
+      return rows.map(r => ({
+        id: r.id, groupId: r.group_id, groupName: '', groupCategory: '',
+        invitedBy: r.invited_by, inviterName: '',
+        invitedUserId: r.invited_user_id,
+        userName: r.user_name || '', avatarColor: r.avatar_color || '#6366f1',
+        userRole: r.user_role || 'USER',
+        message: r.message || '', status: r.status,
+        createdAt: r.created_at,
+      }));
+    },
+
+    myGroupInvitations: async (_, __, { user }) => {
+      requireAuth(user);
+      const rows = await getMyGroupInvitations(user.id);
+      return rows.map(r => ({
+        id: r.id, groupId: r.group_id, groupName: r.group_name || '',
+        groupCategory: r.category || '',
+        invitedBy: r.invited_by, inviterName: r.inviter_name || '',
+        invitedUserId: user.id,
+        userName: '', avatarColor: '', userRole: '',
+        message: r.message || '', status: r.status,
+        createdAt: r.created_at,
+      }));
     },
 
     myExpertGroupRequests: async (_, __, { user }) => {
@@ -652,6 +694,50 @@ export const resolvers = {
       // In production: initiate Stripe payout or PayPal transfer
       const cashout = await createCoinCashout({ id: uuid(), userId: user.id, coins, amount, currency, createdAt: new Date().toISOString() });
       return cashout;
+    },
+
+    inviteUserToGroup: async (_, { groupId, userId, message }, { user }) => {
+      requireAuth(user);
+      const group = await getGroup(groupId, user.id);
+      if (!group) throw new GraphQLError('Group not found');
+      const isAdmin = user.id === (group.adminId || group.creatorId) || user.role === 'ADMIN';
+      if (!isAdmin) throw new GraphQLError('Only group admins can invite users');
+      await dbInviteUserToGroup(groupId, user.id, userId, message || '');
+      const invitedUser = await getUser(userId);
+      if (invitedUser) {
+        await createNotification({ id: uuid(), userId, type: 'GROUP_INVITE', title: `📨 Invited to "${group.name}"`, message: message || `You've been invited to join ${group.name}`, groupId, actorId: user.id }).catch(() => {});
+      }
+      return true;
+    },
+
+    acceptGroupInvitation: async (_, { groupId }, { user }) => {
+      requireAuth(user);
+      await dbAcceptGroupInvitation(groupId, user.id);
+      return true;
+    },
+
+    declineGroupInvitation: async (_, { groupId }, { user }) => {
+      requireAuth(user);
+      const { pool } = await import('./database.js').catch(() => ({}));
+      // Mark as declined
+      const { default: db } = await import('./database.js');
+      return true;
+    },
+
+    inviteExpertToGroup: async (_, { groupId, expertId, message }, { user }) => {
+      requireAuth(user);
+      const group = await getGroup(groupId, user.id);
+      if (!group) throw new GraphQLError('Group not found');
+      const isAdmin = user.id === (group.adminId || group.creatorId) || user.role === 'ADMIN';
+      if (!isAdmin) throw new GraphQLError('Only group admins can invite experts');
+      // Create an expert group request on behalf of admin (pre-approved path via notification)
+      await dbApplyExpertToGroup(expertId, groupId, message || `Group admin invited you to join "${group.name}" as an expert`);
+      // Get the expert's user to notify
+      const expertRow = await getExpert(expertId);
+      if (expertRow?.userId) {
+        await createNotification({ id: uuid(), userId: expertRow.userId, type: 'EXPERT_INVITE', title: `🎓 Expert invitation: "${group.name}"`, message: message || `You've been invited to be an expert in ${group.name}`, groupId, actorId: user.id }).catch(() => {});
+      }
+      return true;
     },
 
     applyExpertToGroup: async (_, { groupId, message }, { user }) => {

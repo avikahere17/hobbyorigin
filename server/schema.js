@@ -244,6 +244,51 @@ export const typeDefs = `#graphql
     product: Product
   }
 
+  type GroupInvitation {
+    id: ID!
+    groupId: ID!
+    groupName: String!
+    groupCategory: String!
+    invitedBy: ID!
+    inviterName: String!
+    invitedUserId: ID!
+    userName: String!
+    avatarColor: String!
+    userRole: String!
+    message: String!
+    status: String!
+    createdAt: String!
+  }
+
+  type ExpertSearchResult {
+    id: ID!
+    userId: ID!
+    name: String!
+    avatarColor: String!
+    headline: String!
+    skills: [String!]!
+    serviceType: String!
+    hourlyRate: Int!
+    currency: String!
+    ratingAvg: Float
+    ratingCount: Int!
+    isElderSupport: Boolean!
+    isVerified: Boolean!
+    matchScore: Int!
+    alreadyRequested: Boolean!
+  }
+
+  type UserSearchResult {
+    id: ID!
+    name: String!
+    email: String!
+    avatarColor: String!
+    city: String!
+    role: String!
+    ageGroup: String!
+    isMember: Boolean!
+  }
+
   type ExpertGroupRequest {
     id: ID!
     expertId: ID!
@@ -372,6 +417,10 @@ export const typeDefs = `#graphql
     matchedGroupsForExpert: [MatchedGroup!]!
     myExpertGroupRequests: [ExpertGroupRequest!]!
     pendingExpertRequestsForGroup(groupId: ID!): [ExpertGroupRequest!]!
+    searchPlatformUsers(search: String!, groupId: ID!): [UserSearchResult!]!
+    findExpertsForGroup(groupId: ID!, search: String): [ExpertSearchResult!]!
+    groupInvitations(groupId: ID!): [GroupInvitation!]!
+    myGroupInvitations: [GroupInvitation!]!
     groupEvents(groupId: ID!): [Event!]!
     groupProducts(groupId: ID!): [Product!]!
     groupCampaigns(groupId: ID!): [Campaign!]!
@@ -407,6 +456,10 @@ export const typeDefs = `#graphql
     cashoutCoins(coins: Int!): CoinCashout!
     applyExpertToGroup(groupId: ID!, message: String): ExpertGroupRequest!
     reviewExpertGroupRequest(expertId: ID!, groupId: ID!, status: String!): Boolean!
+    inviteUserToGroup(groupId: ID!, userId: ID!, message: String): Boolean!
+    acceptGroupInvitation(groupId: ID!): Boolean!
+    declineGroupInvitation(groupId: ID!): Boolean!
+    inviteExpertToGroup(groupId: ID!, expertId: ID!, message: String): Boolean!
     sendMessage(groupId: ID!, content: String!, messageType: MessageType, videoUrl: String): Message!
     sendBuddyRequest(toUserId: ID!): Boolean!
     markNotificationsRead: Boolean!

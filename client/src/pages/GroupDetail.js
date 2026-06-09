@@ -13,6 +13,8 @@ import {
   DELETE_GROUP_MUTATION, MAKE_GROUP_PRIVATE_MUTATION, ASSIGN_GROUP_ADMIN_MUTATION,
   BUY_WITH_COINS_MUTATION, BUY_WITH_CARD_MUTATION, CREATE_PAYMENT_INTENT_MUTATION,
   MY_WALLET_FULL_QUERY, PENDING_EXPERT_REQUESTS_QUERY, REVIEW_EXPERT_REQUEST_MUTATION,
+  SEARCH_PLATFORM_USERS_QUERY, FIND_EXPERTS_FOR_GROUP_QUERY, GROUP_INVITATIONS_QUERY,
+  INVITE_USER_MUTATION, INVITE_EXPERT_MUTATION,
 } from '../graphql';
 import { formatCurrency, formatTicketPrice } from '../utils/currency';
 
@@ -518,66 +520,191 @@ export default function GroupDetail({ onAuthRequired }) {
 
       {/* Admin Panel */}
       {showAdminPanel && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 250, padding: 16 }}>
-          <div className="card" style={{ maxWidth: 480, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 800, margin: 0 }}>⚙️ Group Admin Panel</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowAdminPanel(false)}>✕</button>
-            </div>
+        <AdminPanel
+          group={group} groupId={id} currentUser={currentUser}
+          isCreator={isCreator}
+          expertReqData={expertReqData} refetchExpertReqs={refetchExpertReqs}
+          reviewExpertReq={reviewExpertReq}
+          handleTogglePrivate={handleTogglePrivate}
+          handleAssignAdmin={handleAssignAdmin}
+          handleDeleteGroup={handleDeleteGroup}
+          handleLeave={handleLeave}
+          onClose={() => setShowAdminPanel(false)}
+        />
+      )}
+    </div>
+  );
+}
 
-            {/* Privacy toggle */}
-            <div className="card" style={{ background: 'var(--surface2)', marginBottom: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: 700 }}>{group.isPrivate ? '🔒 Private Group' : '🌐 Public Group'}</div>
-                  <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginTop: 2 }}>
-                    {group.isPrivate ? 'Only members can see this group in listings.' : 'Anyone can find and join this group.'}
+// ── Admin Panel ────────────────────────────────────────────────────────────────
+function AdminPanel({ group, groupId, currentUser, isCreator, expertReqData, refetchExpertReqs, reviewExpertReq, handleTogglePrivate, handleAssignAdmin, handleDeleteGroup, handleLeave, onClose }) {
+  const [adminTab, setAdminTab] = useState('settings');
+  const [userSearch, setUserSearch] = useState('');
+  const [expertSearch, setExpertSearch] = useState('');
+  const [invitedUsers, setInvitedUsers] = useState({});
+  const [invitedExperts, setInvitedExperts] = useState({});
+  const [scheduleForm, setScheduleForm] = useState({ title: '', description: '', videoUrl: '', startsAt: '', durationMins: 60, capacity: 50, ticketPrice: 0 });
+  const [scheduleDone, setScheduleDone] = useState(false);
+
+  const { data: userSearchData } = useQuery(SEARCH_PLATFORM_USERS_QUERY, {
+    variables: { search: userSearch, groupId }, skip: userSearch.length < 2,
+    fetchPolicy: 'network-only',
+  });
+  const { data: expertSearchData, loading: expertsLoading } = useQuery(FIND_EXPERTS_FOR_GROUP_QUERY, {
+    variables: { groupId, search: expertSearch }, skip: adminTab !== 'coaches',
+    fetchPolicy: 'cache-and-network',
+  });
+  const [inviteUser, { loading: inviting }] = useMutation(INVITE_USER_MUTATION, {
+    onCompleted: (_, { variables }) => setInvitedUsers(p => ({ ...p, [variables.userId]: true })),
+  });
+  const [inviteExpert, { loading: invitingExpert }] = useMutation(INVITE_EXPERT_MUTATION, {
+    onCompleted: (_, { variables }) => setInvitedExperts(p => ({ ...p, [variables.expertId]: true })),
+  });
+  const [createEventMut, { loading: scheduling }] = useMutation(
+    require('../graphql').CREATE_EVENT_MUTATION,
+    { onCompleted: () => setScheduleDone(true), refetchQueries: ['GroupEvents'] }
+  );
+
+  const expertReqs = expertReqData?.pendingExpertRequestsForGroup || [];
+  const pendingBadge = expertReqs.length;
+
+  const TABS = [
+    { key: 'settings', label: '⚙️ Settings' },
+    { key: 'invite',   label: '📨 Invite Users' },
+    { key: 'coaches',  label: `🎓 Match Coaches${pendingBadge ? ` (${pendingBadge})` : ''}` },
+    { key: 'schedule', label: '📅 Schedule Session' },
+    { key: 'danger',   label: '⚠️ Danger' },
+  ];
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 250, padding: 16 }}>
+      <div className="card" style={{ maxWidth: 560, width: '100%', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexShrink: 0 }}>
+          <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 800, margin: 0 }}>⚙️ Admin Panel — {group.name}</h3>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+
+        {/* Tab bar */}
+        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', borderBottom: '2px solid var(--border)', paddingBottom: 8, marginBottom: 16, flexShrink: 0 }}>
+          {TABS.map(t => (
+            <button key={t.key} onClick={() => setAdminTab(t.key)}
+              style={{ padding: '6px 12px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap',
+                background: adminTab === t.key ? 'var(--primary)' : 'var(--surface2)',
+                color: adminTab === t.key ? '#fff' : 'var(--text-muted)' }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+
+          {/* ── SETTINGS ── */}
+          {adminTab === 'settings' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* Privacy */}
+              <div className="card" style={{ background: 'var(--surface2)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{group.isPrivate ? '🔒 Private & Invisible' : '🌐 Public Group'}</div>
+                    <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginTop: 2 }}>
+                      {group.isPrivate ? 'Hidden from all listings. Only members and invited users can access.' : 'Anyone can find, view, and request to join this group.'}
+                    </div>
                   </div>
+                  <button className="btn btn-sm" style={{ background: group.isPrivate ? '#10b981' : 'var(--primary)', color: '#fff', minWidth: 120, flexShrink: 0 }} onClick={handleTogglePrivate}>
+                    {group.isPrivate ? '🔓 Make Public' : '🔒 Make Private'}
+                  </button>
                 </div>
-                <button className="btn btn-sm" style={{ background: group.isPrivate ? 'var(--danger)' : 'var(--primary)', color: '#fff', minWidth: 110 }} onClick={handleTogglePrivate}>
-                  {group.isPrivate ? '🔓 Make Public' : '🔒 Make Private'}
-                </button>
+                {group.isPrivate && (
+                  <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(99,102,241,0.08)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-sm)', color: 'var(--primary)' }}>
+                    ℹ️ This group is invisible to non-members. Use the <strong>Invite Users</strong> tab to add new members.
+                  </div>
+                )}
+              </div>
+
+              {/* Assign admin */}
+              <div className="card" style={{ background: 'var(--surface2)' }}>
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>👑 Transfer Admin Rights</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {group.members?.filter(m => m.id !== currentUser?.id).map(m => (
+                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', background: 'var(--bg)', borderRadius: 'var(--radius-sm)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div className="avatar avatar-sm" style={{ background: m.avatarColor }}>{m.name[0]}</div>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{m.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>{m.role}</div>
+                        </div>
+                      </div>
+                      <button className="btn btn-ghost btn-sm" onClick={() => { handleAssignAdmin(m.id); onClose(); }}>Make Admin</button>
+                    </div>
+                  ))}
+                  {!group.members?.filter(m => m.id !== currentUser?.id).length && (
+                    <div style={{ color: 'var(--text-dim)', fontSize: 'var(--font-sm)' }}>No other members yet.</div>
+                  )}
+                </div>
               </div>
             </div>
+          )}
 
-            {/* Assign admin */}
-            <div className="card" style={{ background: 'var(--surface2)', marginBottom: 12 }}>
-              <div style={{ fontWeight: 700, marginBottom: 10 }}>👑 Assign New Admin</div>
-              <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 10 }}>Transfer admin rights to a group member.</div>
+          {/* ── INVITE USERS ── */}
+          {adminTab === 'invite' && (
+            <div>
+              <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 12 }}>
+                Search any user on HobbyOrigin by name or email and invite them directly.
+                {group.isPrivate && <span style={{ color: 'var(--primary)', fontWeight: 600 }}> Since your group is private, invited users are the only ones who can join.</span>}
+              </div>
+              <input className="input" placeholder="Search by name or email…" value={userSearch}
+                onChange={e => setUserSearch(e.target.value)} style={{ marginBottom: 12 }} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {group.members?.filter(m => m.id !== currentUser?.id).map(m => (
-                  <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg)', borderRadius: 'var(--radius-sm)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 28, height: 28, borderRadius: '50%', background: m.avatarColor, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 12 }}>{m.name[0]}</div>
-                      <span style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{m.name}</span>
+                {(userSearchData?.searchPlatformUsers || []).map(u => (
+                  <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--surface2)', borderRadius: 'var(--radius-sm)' }}>
+                    <div className="avatar avatar-sm" style={{ background: u.avatarColor }}>{u.name[0]}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{u.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>{u.city || u.email}</div>
                     </div>
-                    <button className="btn btn-ghost btn-sm" onClick={() => handleAssignAdmin(m.id)}>Make Admin</button>
+                    {u.isMember ? (
+                      <span className="badge badge-success" style={{ fontSize: 11 }}>✓ Member</span>
+                    ) : invitedUsers[u.id] ? (
+                      <span className="badge" style={{ background: 'rgba(99,102,241,0.12)', color: 'var(--primary)', fontSize: 11 }}>✓ Invited</span>
+                    ) : (
+                      <button className="btn btn-primary btn-sm" disabled={inviting}
+                        onClick={() => inviteUser({ variables: { groupId, userId: u.id } }).then(() => setInvitedUsers(p => ({ ...p, [u.id]: true })))}>
+                        📨 Invite
+                      </button>
+                    )}
                   </div>
                 ))}
-                {group.members?.filter(m => m.id !== currentUser?.id).length === 0 && (
-                  <div style={{ color: 'var(--text-dim)', fontSize: 'var(--font-sm)' }}>No other members to assign.</div>
+                {userSearch.length >= 2 && !userSearchData?.searchPlatformUsers?.length && (
+                  <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>No users found for "{userSearch}"</div>
+                )}
+                {userSearch.length < 2 && (
+                  <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-dim)', fontSize: 'var(--font-sm)' }}>Type at least 2 characters to search</div>
                 )}
               </div>
             </div>
+          )}
 
-            {/* Expert Requests */}
-            {(() => {
-              const reqs = expertReqData?.pendingExpertRequestsForGroup || [];
-              return reqs.length > 0 ? (
-                <div className="card" style={{ background: 'rgba(99,102,241,0.05)', border: '1.5px solid rgba(99,102,241,0.2)', marginBottom: 12 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 10 }}>🎓 Expert Join Requests <span style={{ background: 'var(--primary)', color: '#fff', borderRadius: 99, fontSize: 11, padding: '2px 8px', marginLeft: 6 }}>{reqs.length}</span></div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {reqs.map(r => (
-                      <div key={r.id} style={{ background: 'var(--bg)', borderRadius: 'var(--radius-sm)', padding: '12px 14px' }}>
+          {/* ── MATCH COACHES ── */}
+          {adminTab === 'coaches' && (
+            <div>
+              {/* Pending expert requests from experts who applied */}
+              {expertReqs.length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
+                    ⏳ Pending Applications ({expertReqs.length})
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {expertReqs.map(r => (
+                      <div key={r.id} style={{ background: 'var(--surface2)', borderRadius: 'var(--radius-sm)', padding: '12px 14px' }}>
                         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 6 }}>
-                          <div style={{ width: 32, height: 32, borderRadius: '50%', background: r.avatarColor || '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
-                            {(r.userName || 'E')[0]}
-                          </div>
+                          <div className="avatar avatar-sm" style={{ background: r.avatarColor || '#6366f1' }}>{(r.userName || 'E')[0]}</div>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 700, fontSize: 'var(--font-sm)' }}>{r.userName}</div>
                             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.expertHeadline}</div>
                           </div>
-                          <span className="badge badge-dim" style={{ fontSize: 11 }}>{r.expertServiceType === 'CHARITY' ? '🆓 Free' : `💰 ${r.expertHourlyRate} ${r.expertCurrency}/hr`}</span>
+                          <span className="badge badge-dim" style={{ fontSize: 11 }}>{r.expertServiceType === 'CHARITY' ? '🆓 Free' : `${r.expertHourlyRate} ${r.expertCurrency}/hr`}</span>
                         </div>
                         {r.expertSkills?.length > 0 && (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
@@ -587,38 +714,147 @@ export default function GroupDetail({ onAuthRequired }) {
                         {r.message && <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', marginBottom: 8 }}>"{r.message}"</div>}
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button className="btn btn-sm" style={{ background: '#10b981', color: '#fff', flex: 1 }}
-                            onClick={() => reviewExpertReq({ variables: { expertId: r.expertId, groupId: id, status: 'APPROVED' } })}>
+                            onClick={() => reviewExpertReq({ variables: { expertId: r.expertId, groupId, status: 'APPROVED' } }).then(refetchExpertReqs)}>
                             ✅ Approve
                           </button>
                           <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff', flex: 1 }}
-                            onClick={() => reviewExpertReq({ variables: { expertId: r.expertId, groupId: id, status: 'REJECTED' } })}>
+                            onClick={() => reviewExpertReq({ variables: { expertId: r.expertId, groupId, status: 'REJECTED' } }).then(refetchExpertReqs)}>
                             ❌ Reject
                           </button>
                         </div>
                       </div>
                     ))}
                   </div>
+                  <div style={{ height: 1, background: 'var(--border)', margin: '16px 0' }} />
                 </div>
-              ) : null;
-            })()}
+              )}
 
-            {/* Leave / Delete */}
-            <div className="card" style={{ background: 'rgba(239,68,68,0.06)', border: '1.5px solid rgba(239,68,68,0.2)' }}>
-              <div style={{ fontWeight: 700, marginBottom: 10, color: 'var(--danger)' }}>⚠️ Danger Zone</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {!isCreator && (
-                  <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff' }} onClick={() => { setShowAdminPanel(false); handleLeave(); }}>
-                    🚪 Leave Group
-                  </button>
+              {/* Find & invite coaches */}
+              <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 'var(--font-sm)' }}>🔍 Find coaches matched to this group's skills</div>
+              <input className="input" placeholder="Filter by name or skill…" value={expertSearch}
+                onChange={e => setExpertSearch(e.target.value)} style={{ marginBottom: 12 }} />
+              {expertsLoading && <div className="loading-center"><div className="spinner" /></div>}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(expertSearchData?.findExpertsForGroup || []).map(e => (
+                  <div key={e.id} style={{ display: 'flex', gap: 10, padding: '10px 12px', background: 'var(--surface2)', borderRadius: 'var(--radius-sm)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div className="avatar avatar-sm" style={{ background: e.avatarColor, flexShrink: 0 }}>{e.name[0]}</div>
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 3 }}>
+                        <span style={{ fontWeight: 700, fontSize: 'var(--font-sm)' }}>{e.name}</span>
+                        {e.isVerified && <span style={{ fontSize: 11, color: '#10b981' }}>✅ Verified</span>}
+                        {e.matchScore > 0 && <span style={{ fontSize: 11, background: 'rgba(99,102,241,0.1)', color: 'var(--primary)', borderRadius: 99, padding: '1px 6px', fontWeight: 700 }}>🎯 {e.matchScore} match</span>}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>{e.headline}</div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {e.skills.slice(0, 4).map(s => <span key={s} className="badge badge-dim" style={{ fontSize: 11 }}>{s}</span>)}
+                        <span className="badge badge-dim" style={{ fontSize: 11 }}>{e.serviceType === 'CHARITY' ? '🆓 Free' : `${e.hourlyRate} ${e.currency}/hr`}</span>
+                        {e.ratingAvg && <span className="badge badge-dim" style={{ fontSize: 11 }}>⭐ {e.ratingAvg.toFixed(1)}</span>}
+                      </div>
+                    </div>
+                    <div style={{ flexShrink: 0 }}>
+                      {invitedExperts[e.id] || e.alreadyRequested ? (
+                        <span className="badge" style={{ background: 'rgba(99,102,241,0.12)', color: 'var(--primary)', fontSize: 11 }}>✓ Invited</span>
+                      ) : (
+                        <button className="btn btn-primary btn-sm" disabled={invitingExpert}
+                          onClick={() => inviteExpert({ variables: { groupId, expertId: e.id } }).then(() => setInvitedExperts(p => ({ ...p, [e.id]: true })))}>
+                          📨 Invite
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {!expertsLoading && !expertSearchData?.findExpertsForGroup?.length && (
+                  <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>No matched coaches found. Try a different search.</div>
                 )}
-                <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff' }} onClick={() => { setShowAdminPanel(false); handleDeleteGroup(); }}>
-                  🗑️ Delete Group
-                </button>
               </div>
             </div>
-          </div>
+          )}
+
+          {/* ── SCHEDULE SESSION ── */}
+          {adminTab === 'schedule' && (
+            <div>
+              {scheduleDone ? (
+                <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                  <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Session scheduled!</div>
+                  <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 16 }}>Members will see it in the Events tab and can register.</div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setScheduleDone(false)}>Schedule another</button>
+                    <button className="btn btn-primary btn-sm" onClick={onClose}>Close</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Session title *</label>
+                    <input className="input" placeholder="e.g. Weekly Coding Session" value={scheduleForm.title}
+                      onChange={e => setScheduleForm(f => ({ ...f, title: e.target.value }))} />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Description</label>
+                    <textarea className="input" rows={2} placeholder="What will members do in this session?"
+                      value={scheduleForm.description} onChange={e => setScheduleForm(f => ({ ...f, description: e.target.value }))} />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Date & Time *</label>
+                    <input className="input" type="datetime-local" value={scheduleForm.startsAt}
+                      onChange={e => setScheduleForm(f => ({ ...f, startsAt: e.target.value }))} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Duration (mins)</label>
+                      <input className="input" type="number" min={15} step={15} value={scheduleForm.durationMins}
+                        onChange={e => setScheduleForm(f => ({ ...f, durationMins: parseInt(e.target.value) || 60 }))} />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Capacity</label>
+                      <input className="input" type="number" min={1} value={scheduleForm.capacity}
+                        onChange={e => setScheduleForm(f => ({ ...f, capacity: parseInt(e.target.value) || 50 }))} />
+                    </div>
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Google Meet / Video link</label>
+                    <input className="input" placeholder="https://meet.google.com/xxx-xxxx-xxx" value={scheduleForm.videoUrl}
+                      onChange={e => setScheduleForm(f => ({ ...f, videoUrl: e.target.value }))} />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label">Ticket price (0 = free)</label>
+                    <input className="input" type="number" min={0} value={scheduleForm.ticketPrice}
+                      onChange={e => setScheduleForm(f => ({ ...f, ticketPrice: parseInt(e.target.value) || 0 }))} />
+                  </div>
+                  <button className="btn btn-primary" style={{ width: '100%', marginTop: 4 }}
+                    disabled={!scheduleForm.title || !scheduleForm.startsAt || scheduling}
+                    onClick={() => createEventMut({ variables: { groupId, ...scheduleForm } })}>
+                    {scheduling ? 'Scheduling…' : '📅 Schedule Session'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── DANGER ZONE ── */}
+          {adminTab === 'danger' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ padding: '12px 14px', background: 'rgba(245,158,11,0.08)', border: '1.5px solid rgba(245,158,11,0.3)', borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-sm)', color: 'var(--text-muted)' }}>
+                ⚠️ Actions here are irreversible. Please be certain before proceeding.
+              </div>
+              {!isCreator && (
+                <div className="card" style={{ background: 'rgba(239,68,68,0.05)', border: '1.5px solid rgba(239,68,68,0.2)' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>🚪 Leave Group</div>
+                  <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 10 }}>You will lose admin access and your chat history will remain.</div>
+                  <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff' }} onClick={() => { onClose(); handleLeave(); }}>Leave Group</button>
+                </div>
+              )}
+              <div className="card" style={{ background: 'rgba(239,68,68,0.05)', border: '1.5px solid rgba(239,68,68,0.3)' }}>
+                <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--danger)' }}>🗑️ Delete Group</div>
+                <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 10 }}>Permanently deletes the group, all messages, events and members. Cannot be undone.</div>
+                <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff' }} onClick={() => { onClose(); handleDeleteGroup(); }}>Delete Group Permanently</button>
+              </div>
+            </div>
+          )}
+
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -373,6 +373,17 @@ export async function initDB() {
     `ALTER TABLE experts ADD COLUMN IF NOT EXISTS rating_avg REAL DEFAULT NULL`,
     `ALTER TABLE experts ADD COLUMN IF NOT EXISTS rating_count INTEGER DEFAULT 0`,
     `ALTER TABLE experts ADD COLUMN IF NOT EXISTS total_sessions INTEGER DEFAULT 0`,
+    `CREATE TABLE IF NOT EXISTS group_invitations (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      invited_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      invited_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      invited_email TEXT DEFAULT '',
+      status TEXT DEFAULT 'PENDING',
+      message TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(group_id, invited_user_id)
+    )`,
     `CREATE TABLE IF NOT EXISTS expert_group_requests (
       id TEXT PRIMARY KEY,
       expert_id TEXT NOT NULL REFERENCES experts(id) ON DELETE CASCADE,
@@ -1215,6 +1226,113 @@ export async function exportUserData(userId) {
     tips: tips.rows,
     notifications: notifications.rows,
   };
+}
+
+// ── Group invitations ────────────────────────────────────────────────────────
+
+export async function searchPlatformUsers(search, excludeGroupId, limit = 20) {
+  const { rows } = await query(
+    `SELECT u.id, u.name, u.email, u.avatar_color, u.city, u.role,
+            u.interests, u.age_group,
+            CASE WHEN gm.user_id IS NOT NULL THEN true ELSE false END AS is_member
+     FROM users u
+     LEFT JOIN group_members gm ON gm.group_id=$2 AND gm.user_id=u.id
+     WHERE (u.name ILIKE $1 OR u.email ILIKE $1)
+       AND u.email NOT LIKE '%@hobbytest.dev'
+     ORDER BY u.name ASC LIMIT $3`,
+    [`%${search}%`, excludeGroupId, limit]
+  );
+  return rows.map(r => ({
+    ...fmt.user(r),
+    isMember: !!r.is_member,
+  }));
+}
+
+export async function inviteUserToGroup(groupId, invitedBy, invitedUserId, message = '') {
+  const { v4: uuidv4 } = await import('uuid');
+  const id = uuidv4();
+  await query(
+    `INSERT INTO group_invitations (id, group_id, invited_by, invited_user_id, message)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (group_id, invited_user_id) DO UPDATE SET status='PENDING', message=$5, created_at=NOW()`,
+    [id, groupId, invitedBy, invitedUserId, message]
+  );
+  return id;
+}
+
+export async function acceptGroupInvitation(groupId, userId) {
+  await query(
+    `UPDATE group_invitations SET status='ACCEPTED' WHERE group_id=$1 AND invited_user_id=$2`,
+    [groupId, userId]
+  );
+  await query(
+    `INSERT INTO group_members (group_id,user_id,joined_at) VALUES ($1,$2,NOW()) ON CONFLICT DO NOTHING`,
+    [groupId, userId]
+  );
+}
+
+export async function getGroupInvitations(groupId) {
+  const { rows } = await query(
+    `SELECT gi.*, u.name as user_name, u.avatar_color, u.role as user_role
+     FROM group_invitations gi
+     JOIN users u ON u.id = gi.invited_user_id
+     WHERE gi.group_id=$1 AND gi.status='PENDING'
+     ORDER BY gi.created_at DESC`,
+    [groupId]
+  );
+  return rows;
+}
+
+export async function getMyGroupInvitations(userId) {
+  const { rows } = await query(
+    `SELECT gi.*, g.name as group_name, g.category,
+            u.name as inviter_name
+     FROM group_invitations gi
+     JOIN groups g ON g.id = gi.group_id
+     JOIN users u ON u.id = gi.invited_by
+     WHERE gi.invited_user_id=$1 AND gi.status='PENDING'
+     ORDER BY gi.created_at DESC`,
+    [userId]
+  );
+  return rows;
+}
+
+// Search experts by skills matching group tags
+export async function findExpertsForGroup(groupId, search = '') {
+  const { rows: groupRows } = await query('SELECT tags, category FROM groups WHERE id=$1', [groupId]);
+  if (!groupRows.length) return [];
+  const tags = JSON.parse(groupRows[0].tags || '[]');
+  const cat = groupRows[0].category || '';
+
+  const { rows } = await query(
+    `SELECT e.*, u.name, u.avatar_color, u.id as user_id,
+            (SELECT COUNT(*)::int FROM expert_group_requests egr
+             WHERE egr.expert_id=e.id AND egr.group_id=$1) AS already_requested
+     FROM experts e
+     JOIN users u ON u.id = e.user_id
+     WHERE ($2 = '' OR u.name ILIKE $2 OR e.headline ILIKE $2 OR e.skills ILIKE $2)
+     ORDER BY e.rating_avg DESC NULLS LAST
+     LIMIT 30`,
+    [groupId, search ? `%${search}%` : '']
+  );
+
+  const normalize = s => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normTags = [...tags, cat].map(normalize);
+
+  return rows.map(r => {
+    const skills = JSON.parse(r.skills || '[]');
+    const matchScore = skills.filter(sk =>
+      normTags.some(t => normalize(sk).includes(t) || t.includes(normalize(sk)))
+    ).length;
+    return {
+      id: r.id, userId: r.user_id, name: r.name, avatarColor: r.avatar_color,
+      headline: r.headline, skills, serviceType: r.service_type,
+      hourlyRate: r.hourly_rate, currency: r.currency,
+      ratingAvg: r.rating_avg, ratingCount: r.rating_count,
+      isElderSupport: r.is_elder_support, isVerified: r.is_verified,
+      matchScore, alreadyRequested: r.already_requested > 0,
+    };
+  }).sort((a, b) => b.matchScore - a.matchScore);
 }
 
 // ── Expert ↔ Group matching ──────────────────────────────────────────────────
