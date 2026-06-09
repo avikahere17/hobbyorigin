@@ -532,6 +532,8 @@ export const resolvers = {
       if (!args.skills || args.skills.length === 0) throw new GraphQLError('At least one skill is required');
       const id = uuid();
       const expert = await registerExpert({ id, userId: user.id, ...args });
+      // Promote user role to EXPERT so dashboard + nav links activate
+      await setUserRole(user.id, 'EXPERT');
       return resolveExpert(expert);
     },
 
@@ -601,6 +603,15 @@ export const resolvers = {
       if (!expert) throw new GraphQLError('Expert not found');
       const id = uuid();
       return resolveExpert(await createReview({ id, expertId, userId: user.id, bookingId, rating, comment }));
+    },
+
+    registerAsSeller: async (_, { storeName, description }, { user }) => {
+      requireAuth(user);
+      if (user.role === 'SELLER' || user.role === 'ADMIN') throw new GraphQLError('Already registered as seller');
+      // Update bio to include store info, promote role to SELLER
+      await updateUser(user.id, { bio: description ? `${storeName} — ${description}` : storeName });
+      const updated = await setUserRole(user.id, 'SELLER');
+      return resolveUser(updated);
     },
 
     createCoupon: async (_, { code, description, discountPct, maxUses, groupId, expiresAt }, { user }) => {

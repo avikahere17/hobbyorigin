@@ -1,31 +1,72 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation } from '@apollo/client';
 import { useAuth } from '../context/AuthContext';
-import { MY_COUPONS_QUERY, CREATE_COUPON_MUTATION, DELETE_COUPON_MUTATION } from '../graphql';
+import { MY_COUPONS_QUERY, CREATE_COUPON_MUTATION, DELETE_COUPON_MUTATION, REGISTER_AS_SELLER_MUTATION } from '../graphql';
 
 export default function SellerDashboard() {
-  const { currentUser } = useAuth();
+  const { currentUser, updateCurrentUser } = useAuth();
   const [form, setForm] = useState({ code: '', description: '', discountPct: 10, maxUses: 100, expiresAt: '' });
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const { data, loading, refetch } = useQuery(MY_COUPONS_QUERY);
+  // Seller registration state
+  const [regForm, setRegForm] = useState({ storeName: '', storeDesc: '' });
+  const [regError, setRegError] = useState('');
+
+  const { data, loading, refetch } = useQuery(MY_COUPONS_QUERY, { skip: currentUser?.role !== 'SELLER' && currentUser?.role !== 'ADMIN' });
   const [createCoupon, { loading: createLoading }] = useMutation(CREATE_COUPON_MUTATION, {
     onCompleted: () => { refetch(); setCreating(false); setForm({ code: '', description: '', discountPct: 10, maxUses: 100, expiresAt: '' }); setError(''); },
     onError: e => setError(e.message),
   });
   const [deleteCoupon] = useMutation(DELETE_COUPON_MUTATION, { onCompleted: refetch });
+  const [registerAsSeller, { loading: sellerRegLoading }] = useMutation(REGISTER_AS_SELLER_MUTATION, {
+    onCompleted: () => {
+      updateCurrentUser({ role: 'SELLER' });
+      refetch();
+    },
+    onError: e => setRegError(e.message),
+  });
 
   if (!currentUser) return <div className="page"><div className="container" style={{ paddingTop: 100, textAlign: 'center' }}>Please sign in.</div></div>;
 
+  // Show self-registration form for non-sellers
   if (currentUser.role !== 'SELLER' && currentUser.role !== 'ADMIN') {
     return (
       <div className="page">
-        <div className="container" style={{ paddingTop: 100, textAlign: 'center' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🛍️</div>
-          <h2>Seller access required</h2>
-          <p style={{ color: 'var(--text-muted)', marginTop: 8 }}>Contact an admin to upgrade your account to Seller.</p>
+        <div className="container" style={{ padding: '80px 16px', maxWidth: 560 }}>
+          <div style={{ textAlign: 'center', marginBottom: 32 }}>
+            <div style={{ fontSize: 56, marginBottom: 12 }}>🛍️</div>
+            <h1 style={{ fontSize: 'var(--font-xl)', fontWeight: 800, marginBottom: 8 }}>Become a Seller</h1>
+            <p style={{ color: 'var(--text-muted)', lineHeight: 1.6 }}>Sell hobby products, kits, and digital resources to HobbyOrigin group members. Create exclusive discount coupons for specific groups.</p>
+          </div>
+          <div className="card">
+            <div style={{ display: 'grid', gap: 14, marginBottom: 20 }}>
+              {[
+                { icon: '🏷️', t: 'Custom discount coupons', d: 'Create coupon codes with any % off, tied to specific groups or global' },
+                { icon: '📦', t: 'Sell to hobby groups', d: 'Your products reach exactly the right interest communities' },
+                { icon: '💰', t: 'Earn coins & rewards', d: 'Members can tip and reward great products' },
+              ].map(f => (
+                <div key={f.t} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: 24, flexShrink: 0 }}>{f.icon}</span>
+                  <div><div style={{ fontWeight: 700, fontSize: 'var(--font-sm)', marginBottom: 2 }}>{f.t}</div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{f.d}</div></div>
+                </div>
+              ))}
+            </div>
+            <div className="form-group">
+              <label className="form-label">Store / Brand name *</label>
+              <input className="input" placeholder="e.g. The Guitar Emporium" value={regForm.storeName} onChange={e => setRegForm(f => ({ ...f, storeName: e.target.value }))} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">What do you sell? (optional)</label>
+              <textarea className="input" rows={2} placeholder="e.g. Guitar strings, picks, and chord books for beginners" value={regForm.storeDesc} onChange={e => setRegForm(f => ({ ...f, storeDesc: e.target.value }))} />
+            </div>
+            {regError && <div style={{ color: 'var(--danger)', fontSize: 'var(--font-sm)', marginBottom: 10 }}>{regError}</div>}
+            <button className="btn btn-primary" style={{ width: '100%' }} disabled={sellerRegLoading || !regForm.storeName.trim()}
+              onClick={() => registerAsSeller({ variables: { storeName: regForm.storeName.trim(), description: regForm.storeDesc.trim() || null } })}>
+              {sellerRegLoading ? 'Registering…' : '🛍️ Register as Seller — it\'s free!'}
+            </button>
+          </div>
         </div>
       </div>
     );

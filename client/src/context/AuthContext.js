@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { client } from '../apollo';
+import i18n from '../i18n';
 
 const AuthContext = createContext(null);
 
@@ -14,8 +15,13 @@ export function AuthProvider({ children }) {
   });
 
   useEffect(() => {
-    if (currentUser) applyTheme(currentUser.theme, currentUser.ageGroup);
-    else applyTheme('STANDARD');
+    if (currentUser) {
+      applyTheme(currentUser.theme, currentUser.ageGroup);
+      // Restore locale on page reload
+      if (currentUser.locale) i18n.changeLanguage(currentUser.locale);
+    } else {
+      applyTheme('STANDARD');
+    }
   }, [currentUser]);
 
   const login = useCallback((token, user) => {

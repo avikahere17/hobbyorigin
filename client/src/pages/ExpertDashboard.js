@@ -66,7 +66,7 @@ function BookingCard({ booking, expertUserId, onRefetch }) {
 }
 
 export default function ExpertDashboard() {
-  const { currentUser } = useAuth();
+  const { currentUser, updateCurrentUser } = useAuth();
   const [registering, setRegistering] = useState(false);
   const [form, setForm] = useState({ headline: '', bio: '', skills: [], serviceType: 'PAID', hourlyRate: 50, currency: 'GBP', availability: 'Weekends', isElderSupport: false });
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -75,7 +75,12 @@ export default function ExpertDashboard() {
   const { data: bookingsData, loading: bookingsLoading, refetch: refetchBookings } = useQuery(EXPERT_BOOKINGS_QUERY, { skip: !expertData?.myExpertProfile });
 
   const [registerAsExpert, { loading: regLoading }] = useMutation(REGISTER_AS_EXPERT_MUTATION, {
-    onCompleted: () => { refetchExpert(); setRegistering(false); }
+    onCompleted: () => {
+      // Update the stored user role so Navbar and other role-checks activate immediately
+      updateCurrentUser({ role: 'EXPERT' });
+      refetchExpert();
+      setRegistering(false);
+    }
   });
   const [updateExpert, { loading: updateLoading }] = useMutation(UPDATE_EXPERT_PROFILE_MUTATION, {
     onCompleted: () => refetchExpert()

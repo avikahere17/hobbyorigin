@@ -39,8 +39,8 @@ export default function Navbar({ onAuthClick }) {
     { path:'/', label: currentUser?.ageGroup==='KIDS' ? '🏠 Home' : currentUser?.ageGroup==='SENIORS' ? '🏠 Home' : 'Explore' },
     { path:'/find-folks', label: currentUser?.ageGroup==='KIDS' ? '🤝 Find Friends' : currentUser?.ageGroup==='SENIORS' ? '🤝 Find Neighbors' : 'Find Folks' },
     { path:'/learn', label: currentUser?.ageGroup==='KIDS' ? '📚 Learn!' : currentUser?.ageGroup==='SENIORS' ? '📚 Library' : '📚 Learn' },
-    ...(currentUser?.role==='EXPERT' || currentUser?.role==='ADMIN' ? [{ path:'/expert', label:'🎓 Expert' }] : []),
-    ...(currentUser?.role==='SELLER' || currentUser?.role==='ADMIN' ? [{ path:'/seller', label:'🛍️ Seller' }] : []),
+    { path:'/expert', label: currentUser?.role==='EXPERT'||currentUser?.role==='ADMIN' ? '🎓 Expert' : '🎓 Become Expert' },
+    { path:'/seller', label: currentUser?.role==='SELLER'||currentUser?.role==='ADMIN' ? '🛍️ Seller' : '🛍️ Sell' },
     ...(currentUser?.role==='ADMIN' ? [{ path:'/admin', label:'👑 Admin' }] : []),
   ];
 
@@ -132,8 +132,8 @@ export default function Navbar({ onAuthClick }) {
                       {to:`/profile/${currentUser.id}`,label:'👤 My Profile'},
                       {to:'/notifications',label:'🔔 Notifications'},
                       {to:'/learn',label:'📚 Learning Library'},
-                      ...(currentUser.role==='EXPERT'||currentUser.role==='ADMIN' ? [{to:'/expert',label:'🎓 Expert Dashboard'}] : []),
-                      ...(currentUser.role==='SELLER'||currentUser.role==='ADMIN' ? [{to:'/seller',label:'🛍️ Seller Dashboard'}] : []),
+                      {to:'/expert',label: currentUser.role==='EXPERT'||currentUser.role==='ADMIN' ? '🎓 Expert Dashboard' : '🎓 Register as Expert'},
+                      {to:'/seller',label: currentUser.role==='SELLER'||currentUser.role==='ADMIN' ? '🛍️ Seller Dashboard' : '🛍️ Become a Seller'},
                       ...(currentUser.role==='ADMIN' ? [{to:'/admin',label:'👑 Admin Dashboard'}] : []),
                     ].map(item=>(
                       <Link key={item.to} to={item.to} style={{display:'block',padding:'8px 12px',borderRadius:'var(--radius-sm)',fontSize:'var(--font-sm)',color:'var(--text-muted)'}}

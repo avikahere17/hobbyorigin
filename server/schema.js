@@ -332,6 +332,7 @@ export const typeDefs = `#graphql
     cancelBooking(bookingId: ID!): ExpertBooking!
     completeBooking(bookingId: ID!): ExpertBooking!
     reviewExpert(expertId: ID!, bookingId: ID!, rating: Int!, comment: String): Expert!
+    registerAsSeller(storeName: String!, description: String): User!
     createCoupon(code: String!, description: String!, discountPct: Int!, maxUses: Int!, groupId: ID, expiresAt: String): Coupon!
     deleteCoupon(id: ID!): Boolean!
     setUserRole(userId: ID!, role: UserRole!): User!

@@ -170,6 +170,10 @@ export const MY_BOOKINGS_QUERY = gql`query MyBookings { myBookings { ${BOOKING_F
 
 export const EXPERT_BOOKINGS_QUERY = gql`query ExpertBookings { expertBookings { ${BOOKING_FIELDS} } }`;
 
+export const REGISTER_AS_SELLER_MUTATION = gql`mutation RegisterAsSeller($storeName:String!,$description:String) {
+  registerAsSeller(storeName:$storeName,description:$description) { ${USER_FIELDS} joinedGroups { id name } }
+}`;
+
 export const REGISTER_AS_EXPERT_MUTATION = gql`mutation RegisterAsExpert($headline:String!,$bio:String,$skills:[String!]!,$serviceType:ServiceType,$hourlyRate:Int,$currency:String,$languages:[String!],$countries:[String!],$isElderSupport:Boolean,$availability:String) {
   registerAsExpert(headline:$headline,bio:$bio,skills:$skills,serviceType:$serviceType,hourlyRate:$hourlyRate,currency:$currency,languages:$languages,countries:$countries,isElderSupport:$isElderSupport,availability:$availability) { ${EXPERT_FIELDS} }
 }`;
