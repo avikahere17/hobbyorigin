@@ -18,13 +18,11 @@ import {
 } from './database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hobbyorigin_secret_2024';
-
 const AVATAR_COLORS = ['#6366f1','#8b5cf6','#ec4899','#f97316','#14b8a6','#06b6d4','#84cc16','#eab308','#ef4444','#10b981'];
 
 function requireAuth(user) {
   if (!user) throw new GraphQLError('Not authenticated', { extensions: { code: 'UNAUTHENTICATED' } });
 }
-
 function ageToGroup(age) {
   if (!age) return 'ADULTS';
   if (age <= 12) return 'KIDS';
@@ -32,13 +30,11 @@ function ageToGroup(age) {
   if (age <= 59) return 'ADULTS';
   return 'SENIORS';
 }
-
 function ageGroupToTheme(ageGroup) {
   if (ageGroup === 'KIDS') return 'PLAYFUL';
   if (ageGroup === 'SENIORS') return 'ACCESSIBLE';
   return 'STANDARD';
 }
-
 function nextSession(g) {
   if (!g.scheduleDay || !g.scheduleTime) return null;
   const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -53,108 +49,135 @@ function nextSession(g) {
   return next.toISOString();
 }
 
-function resolveGroup(g, userId) {
+async function resolveUser(u) {
+  if (!u) return null;
+  const [groups, unread, tips, wallet, children] = await Promise.all([
+    getUserGroups(u.id),
+    getUnreadCount(u.id),
+    getTipsTotal(u.id),
+    getWallet(u.id),
+    getChildren(u.id),
+  ]);
+  return {
+    ...u,
+    location: { building: u.building||'', neighborhood: u.neighborhood||'', city: u.city||'', country: u.country||'' },
+    joinedGroups: groups,
+    unreadCount: unread,
+    tipsEarned: tips,
+    walletCoins: wallet.coins,
+    children: await Promise.all(children.map(c => resolveUser(c))),
+  };
+}
+
+async function resolveGroup(g, userId) {
   if (!g) return null;
-  const members = getGroupMembers(g.id);
-  const count = getMemberCount(g.id);
+  const [members, count, memberCheck, messages, events, products, campaigns, creator] = await Promise.all([
+    getGroupMembers(g.id),
+    getMemberCount(g.id),
+    userId ? isMember(g.id, userId) : Promise.resolve(false),
+    getGroupMessages(g.id),
+    getGroupEvents(g.id),
+    getGroupProducts(g.id),
+    getGroupCampaigns(g.id),
+    getUser(g.creatorId),
+  ]);
   return {
     ...g,
     memberCount: count,
-    members: members.map(resolveUser),
+    members: await Promise.all(members.map(m => resolveUser(m))),
     isOpen: count < g.maxMembers,
-    isMember: userId ? isMember(g.id, userId) : false,
-    creator: resolveUser(getUser(g.creatorId)),
-    messages: getGroupMessages(g.id),
+    isMember: memberCheck,
+    creator: await resolveUser(creator),
+    messages,
     location: { building: g.building, neighborhood: g.neighborhood, city: g.city, country: g.country },
     schedule: g.scheduleDay ? {
       day: g.scheduleDay, time: g.scheduleTime,
       frequency: g.scheduleFrequency, duration: g.scheduleDuration,
       nextSession: nextSession(g),
     } : null,
-    events: getGroupEvents(g.id).map(e => resolveEvent(e, userId)),
-    products: getGroupProducts(g.id).map(resolveProduct),
-    campaigns: getGroupCampaigns(g.id).map(resolveCampaign),
+    events: await Promise.all(events.map(e => resolveEvent(e, userId))),
+    products: await Promise.all(products.map(p => resolveProduct(p))),
+    campaigns: await Promise.all(campaigns.map(c => resolveCampaign(c))),
   };
 }
 
-function resolveUser(u) {
-  if (!u) return null;
-  return {
-    ...u,
-    location: { building: u.building||'', neighborhood: u.neighborhood||'', city: u.city||'', country: u.country||'' },
-    joinedGroups: getUserGroups(u.id),
-    unreadCount: getUnreadCount(u.id),
-    tipsEarned: getTipsTotal(u.id),
-    walletCoins: getWallet(u.id).coins,
-    children: getChildren(u.id).map(c => resolveUser(c)),
-  };
-}
-
-function resolveEvent(e, userId) {
+async function resolveEvent(e, userId) {
   if (!e) return null;
+  const [count, registered, creator] = await Promise.all([
+    getEventRegistrationCount(e.id),
+    userId ? isRegisteredForEvent(e.id, userId) : Promise.resolve(false),
+    getUser(e.creatorId),
+  ]);
   return {
     ...e,
-    registrationCount: getEventRegistrationCount(e.id),
-    isRegistered: userId ? isRegisteredForEvent(e.id, userId) : false,
-    creator: resolveUser(getUser(e.creatorId)),
+    registrationCount: count,
+    isRegistered: registered,
+    creator: await resolveUser(creator),
   };
 }
 
-function resolveProduct(p) {
+async function resolveProduct(p) {
   if (!p) return null;
-  return { ...p, creator: resolveUser(getUser(p.creatorId)) };
+  return { ...p, creator: await resolveUser(await getUser(p.creatorId)) };
 }
 
-function resolveCampaign(c) {
+async function resolveCampaign(c) {
   if (!c) return null;
-  return { ...c, creator: resolveUser(getUser(c.creatorId)) };
+  return { ...c, creator: await resolveUser(await getUser(c.creatorId)) };
 }
 
-function resolveExpert(e) {
+async function resolveExpert(e) {
   if (!e) return null;
+  const [user, reviews] = await Promise.all([
+    getUser(e.userId),
+    getExpertReviews(e.id),
+  ]);
   return {
     ...e,
-    user: resolveUser(getUser(e.userId)),
-    reviews: getExpertReviews(e.id).map(r => ({
+    user: await resolveUser(user),
+    reviews: await Promise.all(reviews.map(async r => ({
       ...r,
       expertId: r.expert_id,
       userId: r.user_id,
       bookingId: r.booking_id,
       createdAt: r.created_at,
-      reviewer: resolveUser(getUser(r.user_id)),
-    })),
+      reviewer: await resolveUser(await getUser(r.user_id)),
+    }))),
   };
 }
 
-function resolveBooking(b) {
+async function resolveBooking(b) {
   if (!b) return null;
+  const [expert, user] = await Promise.all([
+    getExpert(b.expertId),
+    getUser(b.userId),
+  ]);
   return {
     ...b,
-    expert: resolveExpert(getExpert(b.expertId)),
-    user: resolveUser(getUser(b.userId)),
+    expert: await resolveExpert(expert),
+    user: await resolveUser(user),
   };
 }
 
 // ── Session reminder scheduler ────────────────────────────────────────────────
-// Runs every 5 minutes, notifies group members 1h before a scheduled session
 let _pubsub = null;
 function scheduleReminders(pubsub) {
   _pubsub = pubsub;
-  setInterval(() => {
+  setInterval(async () => {
     try {
-      const groups = getGroups();
+      const groups = await getGroups();
       const now = new Date();
-      groups.forEach(g => {
+      for (const g of groups) {
         const ns = nextSession(g);
-        if (!ns) return;
-        const diff = (new Date(ns) - now) / 60000; // minutes
-        if (diff >= 55 && diff <= 65) { // ~1 hour window
-          const members = getGroupMembers(g.id);
-          members.forEach(m => {
+        if (!ns) continue;
+        const diff = (new Date(ns) - now) / 60000;
+        if (diff >= 55 && diff <= 65) {
+          const members = await getGroupMembers(g.id);
+          for (const m of members) {
             const prefs = m.notificationPrefs || {};
-            if (prefs.session_reminder === false) return;
+            if (prefs.session_reminder === false) continue;
             const id = uuid();
-            createNotification({ id, userId: m.id, type: 'SESSION_REMINDER',
+            await createNotification({ id, userId: m.id, type: 'SESSION_REMINDER',
               title: `⏰ ${g.name} starts in 1 hour`,
               message: `Your group session is scheduled for ${g.scheduleTime} today. Don't miss it!`,
               groupId: g.id, scheduledFor: ns,
@@ -162,9 +185,9 @@ function scheduleReminders(pubsub) {
             if (pubsub) pubsub.publish(`NOTIFICATION_${m.id}`, {
               notificationReceived: { id, type: 'SESSION_REMINDER', title: `⏰ ${g.name} starts in 1 hour`, message: `Session at ${g.scheduleTime}`, isRead: false, groupId: g.id, createdAt: new Date().toISOString() }
             });
-          });
+          }
         }
-      });
+      }
     } catch {}
   }, 5 * 60 * 1000);
 }
@@ -173,253 +196,269 @@ export { scheduleReminders };
 
 export const resolvers = {
   Query: {
-    me: (_, __, { user }) => user ? resolveUser(user) : null,
+    me: async (_, __, { user }) => user ? resolveUser(user) : null,
 
-    groups: (_, args, { user }) =>
-      getGroups(args).map(g => resolveGroup(g, user?.id)),
+    groups: async (_, args, { user }) => {
+      const groups = await getGroups(args);
+      return Promise.all(groups.map(g => resolveGroup(g, user?.id)));
+    },
 
-    group: (_, { id }, { user }) => resolveGroup(getGroup(id), user?.id),
+    group: async (_, { id }, { user }) => resolveGroup(await getGroup(id), user?.id),
 
-    user: (_, { id }) => resolveUser(getUser(id)),
+    user: async (_, { id }) => resolveUser(await getUser(id)),
 
-    findFolks: (_, { interests = [], city, building, ageGroup }, { user }) => {
+    findFolks: async (_, { interests = [], city, building, ageGroup }, { user }) => {
       requireAuth(user);
       const searchCity = city || user.city || null;
       const searchBuilding = building || null;
       const searchInterests = interests.length ? interests : (user.interests || []);
-      const folks = findFolks({ interests: searchInterests, city: searchCity, building: searchBuilding, ageGroup, excludeId: user.id });
-      return folks.map(f => {
+      const folks = await findFolks({ interests: searchInterests, city: searchCity, building: searchBuilding, ageGroup, excludeId: user.id });
+      return Promise.all(folks.map(async f => {
         const shared = (user.interests || []).filter(i => f.interests.includes(i));
         let proximity = 'city';
         if (searchBuilding && f.building?.toLowerCase() === searchBuilding.toLowerCase()) proximity = 'building';
-        const buddyStatus = getBuddyStatus(user.id, f.id);
-        return { user: resolveUser(f), sharedInterests: shared, proximity, buddyStatus };
-      });
+        const buddyStatus = await getBuddyStatus(user.id, f.id);
+        return { user: await resolveUser(f), sharedInterests: shared, proximity, buddyStatus };
+      }));
     },
 
-    myNotifications: (_, __, { user }) => {
+    myNotifications: async (_, __, { user }) => {
       requireAuth(user);
       return getUserNotifications(user.id);
     },
 
-    myWallet: (_, __, { user }) => { requireAuth(user); return getWallet(user.id); },
+    myWallet: async (_, __, { user }) => { requireAuth(user); return getWallet(user.id); },
 
-    groupEvents: (_, { groupId }, { user }) =>
-      getGroupEvents(groupId).map(e => resolveEvent(e, user?.id)),
+    groupEvents: async (_, { groupId }, { user }) => {
+      const events = await getGroupEvents(groupId);
+      return Promise.all(events.map(e => resolveEvent(e, user?.id)));
+    },
 
-    groupProducts: (_, { groupId }) =>
-      getGroupProducts(groupId).map(resolveProduct),
+    groupProducts: async (_, { groupId }) => {
+      const products = await getGroupProducts(groupId);
+      return Promise.all(products.map(p => resolveProduct(p)));
+    },
 
-    groupCampaigns: (_, { groupId }) =>
-      getGroupCampaigns(groupId).map(resolveCampaign),
+    groupCampaigns: async (_, { groupId }) => {
+      const campaigns = await getGroupCampaigns(groupId);
+      return Promise.all(campaigns.map(c => resolveCampaign(c)));
+    },
 
-    searchExperts: (_, { skill, isElderSupport, country, serviceType }) =>
-      dbSearchExperts({ skill, isElderSupport, country, serviceType }).map(resolveExpert),
+    searchExperts: async (_, { skill, isElderSupport, country, serviceType }) => {
+      const experts = await dbSearchExperts({ skill, isElderSupport, country, serviceType });
+      return Promise.all(experts.map(e => resolveExpert(e)));
+    },
 
-    expert: (_, { id }) => resolveExpert(getExpert(id)),
+    expert: async (_, { id }) => resolveExpert(await getExpert(id)),
 
-    myExpertProfile: (_, __, { user }) => {
+    myExpertProfile: async (_, __, { user }) => {
       requireAuth(user);
-      const e = getExpertByUser(user.id);
+      const e = await getExpertByUser(user.id);
       return e ? resolveExpert(e) : null;
     },
 
-    myBookings: (_, __, { user }) => {
+    myBookings: async (_, __, { user }) => {
       requireAuth(user);
-      return getUserBookings(user.id).map(resolveBooking);
+      const bookings = await getUserBookings(user.id);
+      return Promise.all(bookings.map(b => resolveBooking(b)));
     },
 
-    expertBookings: (_, __, { user }) => {
+    expertBookings: async (_, __, { user }) => {
       requireAuth(user);
-      const expert = getExpertByUser(user.id);
+      const expert = await getExpertByUser(user.id);
       if (!expert) throw new GraphQLError('You are not registered as an expert');
-      return getExpertBookings(expert.id).map(resolveBooking);
+      const bookings = await getExpertBookings(expert.id);
+      return Promise.all(bookings.map(b => resolveBooking(b)));
     },
   },
 
   Mutation: {
     register: async (_, { name, email, password, age, city, country, building, neighborhood, currency, locale }) => {
-      if (getUserByEmail(email)) throw new GraphQLError('Email already in use');
+      const existing = await getUserByEmail(email);
+      if (existing) throw new GraphQLError('Email already in use');
       if (password.length < 6) throw new GraphQLError('Password must be at least 6 characters');
       const hashed = await bcrypt.hash(password, 10);
       const ageGroup = ageToGroup(age);
       const theme = ageGroupToTheme(ageGroup);
       const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
       const id = uuid();
-      const user = createUser({ id, name, email, password: hashed, avatarColor: color, age: age || null, ageGroup, theme, currency: currency||'GBP', locale: locale||'en-GB', createdAt: new Date().toISOString() });
-      if (city || building || country) updateUser(id, { city: city||'', country: country||'', building: building||'', neighborhood: neighborhood||'' });
+      await createUser({ id, name, email, password: hashed, avatarColor: color, age: age || null, ageGroup, theme, currency: currency||'GBP', locale: locale||'en-GB', createdAt: new Date().toISOString() });
+      if (city || building || country) await updateUser(id, { city: city||'', country: country||'', building: building||'', neighborhood: neighborhood||'' });
       const token = jwt.sign({ userId: id }, JWT_SECRET, { expiresIn: '30d' });
-      return { token, user: resolveUser(getUser(id)) };
+      return { token, user: await resolveUser(await getUser(id)) };
     },
 
     login: async (_, { email, password }) => {
-      const row = getUserByEmail(email);
+      const row = await getUserByEmail(email);
       if (!row || !await bcrypt.compare(password, row.password)) throw new GraphQLError('Invalid credentials');
       const token = jwt.sign({ userId: row.id }, JWT_SECRET, { expiresIn: '30d' });
-      return { token, user: resolveUser(getUser(row.id)) };
+      return { token, user: await resolveUser(await getUser(row.id)) };
     },
 
-    updateProfile: (_, args, { user }) => {
+    updateProfile: async (_, args, { user }) => {
       requireAuth(user);
       const dbFields = { bio: args.bio, interests: args.interests, age: args.age, building: args.building, neighborhood: args.neighborhood, city: args.city, country: args.country, language: args.language };
       if (args.theme) dbFields.theme = args.theme;
       if (args.currency) dbFields.currency = args.currency;
       if (args.locale) dbFields.locale = args.locale;
-      if (args.age) { dbFields.age_group = ageToGroup(args.age); }
-      updateUser(user.id, dbFields);
-      return resolveUser(getUser(user.id));
+      if (args.age) dbFields.age_group = ageToGroup(args.age);
+      await updateUser(user.id, dbFields);
+      return resolveUser(await getUser(user.id));
     },
 
-    createGroup: (_, args, { user, pubsub }) => {
+    createGroup: async (_, args, { user }) => {
       requireAuth(user);
       if (args.maxMembers < 2 || args.maxMembers > 200) throw new GraphQLError('Max members must be 2–200');
       const id = uuid();
-      createGroup({ id, ...args, tags: args.tags || [], ageGroups: args.ageGroups || ['KIDS','TEENS','ADULTS','SENIORS'], creatorId: user.id, createdAt: new Date().toISOString() });
-      return resolveGroup(getGroup(id), user.id);
+      await createGroup({ id, ...args, tags: args.tags || [], ageGroups: args.ageGroups || ['KIDS','TEENS','ADULTS','SENIORS'], creatorId: user.id, createdAt: new Date().toISOString() });
+      return resolveGroup(await getGroup(id), user.id);
     },
 
-    joinGroup: (_, { groupId }, { user, pubsub }) => {
+    joinGroup: async (_, { groupId }, { user, pubsub }) => {
       requireAuth(user);
-      const group = getGroup(groupId);
+      const group = await getGroup(groupId);
       if (!group) throw new GraphQLError('Group not found');
-      if (getMemberCount(groupId) >= group.maxMembers) throw new GraphQLError('Group is full');
-      joinGroup(groupId, user.id);
-      // Notify creator
+      const count = await getMemberCount(groupId);
+      if (count >= group.maxMembers) throw new GraphQLError('Group is full');
+      await joinGroup(groupId, user.id);
       const notifId = uuid();
-      createNotification({ id: notifId, userId: group.creatorId, type: 'NEW_MEMBER', title: `👋 ${user.name} joined ${group.name}`, message: `A new member just joined your group!`, groupId, actorId: user.id });
+      await createNotification({ id: notifId, userId: group.creatorId, type: 'NEW_MEMBER', title: `👋 ${user.name} joined ${group.name}`, message: `A new member just joined your group!`, groupId, actorId: user.id });
       if (pubsub) {
-        const r = resolveGroup(getGroup(groupId), user.id);
+        const r = await resolveGroup(await getGroup(groupId), user.id);
         pubsub.publish(`GROUP_MEMBER_CHANGED_${groupId}`, { groupMemberChanged: r });
         pubsub.publish(`NOTIFICATION_${group.creatorId}`, { notificationReceived: { id: notifId, type: 'NEW_MEMBER', title: `👋 ${user.name} joined ${group.name}`, message: 'New member!', isRead: false, groupId, createdAt: new Date().toISOString() } });
       }
-      return resolveGroup(getGroup(groupId), user.id);
+      return resolveGroup(await getGroup(groupId), user.id);
     },
 
-    leaveGroup: (_, { groupId }, { user, pubsub }) => {
+    leaveGroup: async (_, { groupId }, { user, pubsub }) => {
       requireAuth(user);
-      const group = getGroup(groupId);
+      const group = await getGroup(groupId);
       if (!group) throw new GraphQLError('Group not found');
       if (group.creatorId === user.id) throw new GraphQLError('Creator cannot leave their own group');
-      leaveGroup(groupId, user.id);
-      const r = resolveGroup(getGroup(groupId), user.id);
+      await leaveGroup(groupId, user.id);
+      const r = await resolveGroup(await getGroup(groupId), user.id);
       if (pubsub) pubsub.publish(`GROUP_MEMBER_CHANGED_${groupId}`, { groupMemberChanged: r });
       return r;
     },
 
-    sendMessage: (_, { groupId, content }, { user, pubsub }) => {
+    sendMessage: async (_, { groupId, content }, { user, pubsub }) => {
       requireAuth(user);
       if (!content.trim()) throw new GraphQLError('Message cannot be empty');
-      if (!isMember(groupId, user.id)) throw new GraphQLError('Join the group first');
+      const memberCheck = await isMember(groupId, user.id);
+      if (!memberCheck) throw new GraphQLError('Join the group first');
       const id = uuid();
-      const msg = createMessage({ id, content: content.trim(), senderId: user.id, groupId, createdAt: new Date().toISOString() });
-      const resolved = { ...msg, sender: getUser(user.id) };
+      const msg = await createMessage({ id, content: content.trim(), senderId: user.id, groupId, createdAt: new Date().toISOString() });
+      const sender = await getUser(user.id);
+      const resolved = { ...msg, sender };
       if (pubsub) pubsub.publish(`MESSAGE_SENT_${groupId}`, { messageSent: resolved });
       return resolved;
     },
 
-    sendBuddyRequest: (_, { toUserId }, { user, pubsub }) => {
+    sendBuddyRequest: async (_, { toUserId }, { user, pubsub }) => {
       requireAuth(user);
-      const to = getUser(toUserId);
+      const to = await getUser(toUserId);
       if (!to) throw new GraphQLError('User not found');
-      sendBuddyRequest({ id: uuid(), fromId: user.id, toId: toUserId, createdAt: new Date().toISOString() });
+      await sendBuddyRequest({ id: uuid(), fromId: user.id, toId: toUserId, createdAt: new Date().toISOString() });
       const notifId = uuid();
-      createNotification({ id: notifId, userId: toUserId, type: 'BUDDY_REQUEST', title: `🤝 ${user.name} wants to connect!`, message: `${user.name} sent you a buddy request.`, actorId: user.id });
+      await createNotification({ id: notifId, userId: toUserId, type: 'BUDDY_REQUEST', title: `🤝 ${user.name} wants to connect!`, message: `${user.name} sent you a buddy request.`, actorId: user.id });
       if (pubsub) pubsub.publish(`NOTIFICATION_${toUserId}`, { notificationReceived: { id: notifId, type: 'BUDDY_REQUEST', title: `🤝 ${user.name} wants to connect!`, message: `Buddy request`, isRead: false, createdAt: new Date().toISOString() } });
       return true;
     },
 
-    markNotificationsRead: (_, __, { user }) => {
+    markNotificationsRead: async (_, __, { user }) => {
       requireAuth(user);
-      markNotificationsRead(user.id);
+      await markNotificationsRead(user.id);
       return true;
     },
 
-    sendTip: (_, { toUserId, groupId, amount, message }, { user, pubsub }) => {
+    sendTip: async (_, { toUserId, groupId, amount, message }, { user, pubsub }) => {
       requireAuth(user);
       if (amount < 1 || amount > 100) throw new GraphQLError('Amount must be 1–100 coins');
-      const to = getUser(toUserId);
+      const to = await getUser(toUserId);
       if (!to) throw new GraphQLError('User not found');
       const id = uuid();
-      dbSendTip({ id, fromId: user.id, toId: toUserId, groupId, amount, message });
+      await dbSendTip({ id, fromId: user.id, toId: toUserId, groupId, amount, message });
       const notifId = uuid();
-      createNotification({ id: notifId, userId: toUserId, type: 'TIP_RECEIVED', title: `⭐ ${user.name} sent you ${amount} coin${amount > 1 ? 's' : ''}!`, message: message || `You received a tip from ${user.name}.`, actorId: user.id, groupId });
+      await createNotification({ id: notifId, userId: toUserId, type: 'TIP_RECEIVED', title: `⭐ ${user.name} sent you ${amount} coin${amount > 1 ? 's' : ''}!`, message: message || `You received a tip from ${user.name}.`, actorId: user.id, groupId });
       if (pubsub) pubsub.publish(`NOTIFICATION_${toUserId}`, { notificationReceived: { id: notifId, type: 'TIP_RECEIVED', title: `⭐ ${user.name} sent you ${amount} coins!`, message: message || 'Tip received!', isRead: false, createdAt: new Date().toISOString() } });
       return { id, fromId: user.id, toId: toUserId, groupId, amount, message: message||'', createdAt: new Date().toISOString() };
     },
 
-    createEvent: (_, { groupId, title, description, videoUrl, startsAt, durationMins, capacity, ticketPrice }, { user }) => {
+    createEvent: async (_, { groupId, title, description, videoUrl, startsAt, durationMins, capacity, ticketPrice }, { user }) => {
       requireAuth(user);
-      const group = getGroup(groupId);
+      const group = await getGroup(groupId);
       if (!group) throw new GraphQLError('Group not found');
       if (group.creatorId !== user.id) throw new GraphQLError('Only the group creator can add events');
       const id = uuid();
-      const event = createEvent({ id, groupId, creatorId: user.id, title, description, videoUrl, startsAt, durationMins, capacity, ticketPrice });
+      const event = await createEvent({ id, groupId, creatorId: user.id, title, description, videoUrl, startsAt, durationMins, capacity, ticketPrice });
       return resolveEvent(event, user.id);
     },
 
-    registerForEvent: (_, { eventId }, { user }) => {
+    registerForEvent: async (_, { eventId }, { user }) => {
       requireAuth(user);
-      const event = getEvent(eventId);
+      const event = await getEvent(eventId);
       if (!event) throw new GraphQLError('Event not found');
-      if (getEventRegistrationCount(eventId) >= event.capacity) throw new GraphQLError('Event is full');
-      dbRegisterForEvent(eventId, user.id);
-      return resolveEvent(getEvent(eventId), user.id);
+      const count = await getEventRegistrationCount(eventId);
+      if (count >= event.capacity) throw new GraphQLError('Event is full');
+      await dbRegisterForEvent(eventId, user.id);
+      return resolveEvent(await getEvent(eventId), user.id);
     },
 
-    unregisterFromEvent: (_, { eventId }, { user }) => {
+    unregisterFromEvent: async (_, { eventId }, { user }) => {
       requireAuth(user);
-      dbUnregisterFromEvent(eventId, user.id);
-      return resolveEvent(getEvent(eventId), user.id);
+      await dbUnregisterFromEvent(eventId, user.id);
+      return resolveEvent(await getEvent(eventId), user.id);
     },
 
-    createProduct: (_, { groupId, name, description, price, productType, imageEmoji, stock }, { user }) => {
+    createProduct: async (_, { groupId, name, description, price, productType, imageEmoji, stock }, { user }) => {
       requireAuth(user);
-      const group = getGroup(groupId);
+      const group = await getGroup(groupId);
       if (!group) throw new GraphQLError('Group not found');
       if (group.creatorId !== user.id) throw new GraphQLError('Only the group creator can add products');
       const id = uuid();
-      const product = createProduct({ id, groupId, creatorId: user.id, name, description, price, productType, imageEmoji, stock });
+      const product = await createProduct({ id, groupId, creatorId: user.id, name, description, price, productType, imageEmoji, stock });
       return resolveProduct(product);
     },
 
-    createCampaign: (_, { groupId, title, goal, description, targetAgeGroups, targetCity, startDate, endDate }, { user }) => {
+    createCampaign: async (_, { groupId, title, goal, description, targetAgeGroups, targetCity, startDate, endDate }, { user }) => {
       requireAuth(user);
-      const group = getGroup(groupId);
+      const group = await getGroup(groupId);
       if (!group) throw new GraphQLError('Group not found');
       if (group.creatorId !== user.id) throw new GraphQLError('Only the group creator can create campaigns');
       const id = uuid();
-      const campaign = createCampaign({ id, groupId, creatorId: user.id, title, goal, description, targetAgeGroups, targetCity, startDate, endDate });
+      const campaign = await createCampaign({ id, groupId, creatorId: user.id, title, goal, description, targetAgeGroups, targetCity, startDate, endDate });
       return resolveCampaign(campaign);
     },
 
-    addCoins: (_, { userId, amount }, { user }) => {
+    addCoins: async (_, { userId, amount }, { user }) => {
       requireAuth(user);
       if (amount < 1) throw new GraphQLError('Amount must be positive');
       return addCoins(userId, amount);
     },
 
-    linkChild: (_, { childEmail }, { user }) => {
+    linkChild: async (_, { childEmail }, { user }) => {
       requireAuth(user);
-      const child = getUserByEmail(childEmail);
+      const child = await getUserByEmail(childEmail);
       if (!child) throw new GraphQLError('No user found with that email');
       if (child.age_group !== 'KIDS' && child.age_group !== 'TEENS') throw new GraphQLError('Can only link to KIDS or TEENS accounts');
-      linkParentChild(user.id, child.id);
-      return resolveUser(getUser(child.id));
+      await linkParentChild(user.id, child.id);
+      return resolveUser(await getUser(child.id));
     },
 
-    registerAsExpert: (_, args, { user }) => {
+    registerAsExpert: async (_, args, { user }) => {
       requireAuth(user);
-      const existing = getExpertByUser(user.id);
+      const existing = await getExpertByUser(user.id);
       if (existing) throw new GraphQLError('You are already registered as an expert');
       if (!args.skills || args.skills.length === 0) throw new GraphQLError('At least one skill is required');
       const id = uuid();
-      const expert = registerExpert({ id, userId: user.id, ...args });
+      const expert = await registerExpert({ id, userId: user.id, ...args });
       return resolveExpert(expert);
     },
 
-    updateExpertProfile: (_, args, { user }) => {
+    updateExpertProfile: async (_, args, { user }) => {
       requireAuth(user);
-      const expert = getExpertByUser(user.id);
+      const expert = await getExpertByUser(user.id);
       if (!expert) throw new GraphQLError('Expert profile not found');
       const dbFields = {};
       if (args.headline !== undefined) dbFields.headline = args.headline;
@@ -430,61 +469,59 @@ export const resolvers = {
       if (args.currency) dbFields.currency = args.currency;
       if (args.languages) dbFields.languages = args.languages;
       if (args.countries) dbFields.countries = args.countries;
-      if (args.isElderSupport !== undefined) dbFields.is_elder_support = args.isElderSupport ? 1 : 0;
+      if (args.isElderSupport !== undefined) dbFields.is_elder_support = args.isElderSupport;
       if (args.availability !== undefined) dbFields.availability = args.availability;
-      return resolveExpert(updateExpert(expert.id, dbFields));
+      return resolveExpert(await updateExpert(expert.id, dbFields));
     },
 
-    bookExpert: (_, { expertId, skill, serviceType, scheduledAt, durationMins, notes }, { user }) => {
+    bookExpert: async (_, { expertId, skill, serviceType, scheduledAt, durationMins, notes }, { user }) => {
       requireAuth(user);
-      const expert = getExpert(expertId);
+      const expert = await getExpert(expertId);
       if (!expert) throw new GraphQLError('Expert not found');
       if (expert.userId === user.id) throw new GraphQLError('You cannot book yourself');
-      const effectiveServiceType = serviceType || expert.serviceType === 'CHARITY' ? 'CHARITY' : 'PAID';
+      const effectiveServiceType = serviceType || (expert.serviceType === 'CHARITY' ? 'CHARITY' : 'PAID');
       const amount = effectiveServiceType === 'CHARITY' ? 0 : (expert.hourlyRate * (durationMins || 60)) / 60;
       const id = uuid();
-      const booking = createBooking({ id, expertId, userId: user.id, skill, serviceType: effectiveServiceType, scheduledAt, durationMins: durationMins||60, amount: Math.round(amount), currency: expert.currency, notes });
-      // Notify expert
-      const expertUser = getUser(expert.userId);
+      const booking = await createBooking({ id, expertId, userId: user.id, skill, serviceType: effectiveServiceType, scheduledAt, durationMins: durationMins||60, amount: Math.round(amount), currency: expert.currency, notes });
       const notifId = uuid();
-      createNotification({ id: notifId, userId: expert.userId, type: 'BOOKING_REQUEST', title: `📅 New booking from ${user.name}`, message: `${user.name} has requested a session on ${skill}`, actorId: user.id });
+      await createNotification({ id: notifId, userId: expert.userId, type: 'BOOKING_REQUEST', title: `📅 New booking from ${user.name}`, message: `${user.name} has requested a session on ${skill}`, actorId: user.id });
       return resolveBooking(booking);
     },
 
-    confirmBooking: (_, { bookingId, meetingUrl }, { user }) => {
+    confirmBooking: async (_, { bookingId, meetingUrl }, { user }) => {
       requireAuth(user);
-      const booking = getBooking(bookingId);
+      const booking = await getBooking(bookingId);
       if (!booking) throw new GraphQLError('Booking not found');
-      const expert = getExpert(booking.expertId);
+      const expert = await getExpert(booking.expertId);
       if (expert.userId !== user.id) throw new GraphQLError('Only the expert can confirm this booking');
-      return resolveBooking(updateBookingStatus(bookingId, 'CONFIRMED', meetingUrl));
+      return resolveBooking(await updateBookingStatus(bookingId, 'CONFIRMED', meetingUrl));
     },
 
-    cancelBooking: (_, { bookingId }, { user }) => {
+    cancelBooking: async (_, { bookingId }, { user }) => {
       requireAuth(user);
-      const booking = getBooking(bookingId);
+      const booking = await getBooking(bookingId);
       if (!booking) throw new GraphQLError('Booking not found');
-      const expert = getExpert(booking.expertId);
+      const expert = await getExpert(booking.expertId);
       if (booking.userId !== user.id && expert.userId !== user.id) throw new GraphQLError('Not authorised');
-      return resolveBooking(updateBookingStatus(bookingId, 'CANCELLED', ''));
+      return resolveBooking(await updateBookingStatus(bookingId, 'CANCELLED', ''));
     },
 
-    completeBooking: (_, { bookingId }, { user }) => {
+    completeBooking: async (_, { bookingId }, { user }) => {
       requireAuth(user);
-      const booking = getBooking(bookingId);
+      const booking = await getBooking(bookingId);
       if (!booking) throw new GraphQLError('Booking not found');
-      const expert = getExpert(booking.expertId);
+      const expert = await getExpert(booking.expertId);
       if (expert.userId !== user.id) throw new GraphQLError('Only the expert can mark this completed');
-      return resolveBooking(updateBookingStatus(bookingId, 'COMPLETED', booking.meetingUrl));
+      return resolveBooking(await updateBookingStatus(bookingId, 'COMPLETED', booking.meetingUrl));
     },
 
-    reviewExpert: (_, { expertId, bookingId, rating, comment }, { user }) => {
+    reviewExpert: async (_, { expertId, bookingId, rating, comment }, { user }) => {
       requireAuth(user);
       if (rating < 1 || rating > 5) throw new GraphQLError('Rating must be 1–5');
-      const expert = getExpert(expertId);
+      const expert = await getExpert(expertId);
       if (!expert) throw new GraphQLError('Expert not found');
       const id = uuid();
-      return resolveExpert(createReview({ id, expertId, userId: user.id, bookingId, rating, comment }));
+      return resolveExpert(await createReview({ id, expertId, userId: user.id, bookingId, rating, comment }));
     },
   },
 
