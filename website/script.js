@@ -52,27 +52,11 @@ document.querySelectorAll('.ptab').forEach(btn => {
   });
 });
 
-/* ── Waitlist form ── */
-const form = document.getElementById('waitlistForm');
-const successMsg = document.getElementById('wlSuccess');
-const btnText = document.getElementById('wlBtnText');
-
-form?.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const name = document.getElementById('wlName').value.trim();
-  const email = document.getElementById('wlEmail').value.trim();
-  const age = document.getElementById('wlAge').value;
-
-  if (!name || !email) return;
-
-  // Simulate submission
-  btnText.textContent = 'Joining…';
-  setTimeout(() => {
-    form.style.display = 'none';
-    successMsg.style.display = 'block';
-    // Log to console for now (replace with real API call)
-    console.log('Waitlist signup:', { name, email, age });
-  }, 800);
+/* ── CTA buttons — redirect to live app ── */
+document.querySelectorAll('a.launch-btn, a.launch-role-chip').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    // All launch CTAs go to the live app — no interception needed, just let the href do its job
+  });
 });
 
 /* ── Smooth anchor scroll ── */
