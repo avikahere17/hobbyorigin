@@ -40,7 +40,8 @@
       <a href="#global">Global</a>
     </div>
     <div class="nav-actions">
-      <a href="#waitlist" class="btn-nav-cta">Join Waitlist</a>
+      <a href="https://hobbyorigin-app.netlify.app/?login=true" class="btn-nav-signin">Sign In</a>
+      <a href="https://hobbyorigin-app.netlify.app/?join=true" class="btn-nav-cta">Join Free</a>
       <button class="hamburger" id="hamburger" aria-label="Menu">
         <span></span><span></span><span></span>
       </button>
@@ -77,11 +78,11 @@
         <span class="hflag">🌐 <span>More coming</span></span>
       </div>
       <div class="hero-actions reveal">
-        <a href="https://app.hobbyorigin.com" class="btn-primary btn-lg">
-          <span>Open the App</span>
+        <a href="https://hobbyorigin-app.netlify.app/?join=true" class="btn-primary btn-lg">
+          <span>Join Free — Open App</span>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </a>
-        <a href="#how" class="btn-ghost btn-lg">See how it works</a>
+        <a href="https://hobbyorigin-app.netlify.app/?login=true" class="btn-ghost btn-lg">Sign In →</a>
       </div>
       <div class="hero-stats reveal">
         <div class="hero-stat"><span class="stat-num">🎓</span><span class="stat-lbl">Expert Coaches</span></div>
@@ -323,7 +324,7 @@
           <p>Register your skills on HobbyOrigin and reach learners in your community — children looking for their first guitar lesson, adults wanting to master watercolour, seniors seeking companionship through shared hobbies. Choose charity or set your price.</p>
         </div>
       </div>
-      <a href="https://app.hobbyorigin.com/register?role=expert" class="btn-primary">Register as Expert →</a>
+      <a href="https://hobbyorigin-app.netlify.app/?join=true&role=expert" class="btn-primary">Register as Expert →</a>
     </div>
 
     <div class="expert-stats-row reveal">
@@ -640,47 +641,65 @@
   </div>
 </section>
 
-<!-- ══════════════════════════════════════ WAITLIST ═══ -->
+<!-- ══════════════════════════════════════ LAUNCH CTA ═══ -->
 <section class="waitlist" id="waitlist">
   <div class="container">
     <div class="waitlist-box reveal">
       <div class="wl-icon">🚀</div>
-      <h2>Be the first in your community</h2>
-      <p>Join the waitlist and get early access, plus founding member status when we launch in your area.</p>
-      <form class="wl-form" id="waitlistForm">
-        <div class="wl-fields">
-          <input type="text" placeholder="Your name" required id="wlName" />
-          <input type="email" placeholder="Email address" required id="wlEmail" />
-          <select id="wlCountry">
-            <option value="">🌍 Select your country…</option>
-            <option value="GB">🇬🇧 United Kingdom</option>
-            <option value="US">🇺🇸 United States</option>
-            <option value="IN">🇮🇳 India</option>
-            <option value="AU">🇦🇺 Australia</option>
-            <option value="CA">🇨🇦 Canada</option>
-            <option value="other">🌐 Other country</option>
-          </select>
-          <select id="wlAge">
-            <option value="">I am a…</option>
-            <option>Parent (child user)</option>
-            <option>Kid / Teen (5–17)</option>
-            <option>Adult (18–59)</option>
-            <option>Senior (60+)</option>
-            <option>Club / Organisation</option>
-            <option>Expert / Coach / Tutor</option>
-            <option>Elder Care Professional</option>
-            <option>Partner / Investor</option>
-          </select>
-        </div>
-        <button type="submit" class="btn-primary btn-lg">
-          <span id="wlBtnText">Join the Waitlist</span>
-        </button>
-        <p style="margin-top:12px;font-size:13px;color:#8888aa">Already have an account? <a href="https://app.hobbyorigin.com" style="color:#a78bfa">Open the app →</a></p>
-      </form>
-      <div id="wlSuccess" class="wl-success" style="display:none">
-        🎉 You're on the list! We'll be in touch soon.
+      <h2>HobbyOrigin is live — join now!</h2>
+      <p>Create your free account in 30 seconds. Find groups, expert coaches, and people near you who share your passions.</p>
+
+      <!-- Primary CTA: go straight to app -->
+      <div class="launch-ctas">
+        <a href="https://hobbyorigin-app.netlify.app/?join=true" class="btn-primary btn-lg launch-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          <span>Create Free Account</span>
+        </a>
+        <a href="https://hobbyorigin-app.netlify.app/?login=true" class="btn-ghost btn-lg launch-btn">
+          Sign In to Existing Account
+        </a>
       </div>
-      <div class="wl-social-proof">People joining from 🇬🇧 UK · 🇺🇸 USA · 🇮🇳 India · 🇦🇺 Australia · 🌍 and beyond</div>
+
+      <!-- Role-specific shortcuts -->
+      <div class="launch-role-row">
+        <a href="https://hobbyorigin-app.netlify.app/?join=true&role=expert" class="launch-role-chip">
+          🎓 Join as Expert Coach
+        </a>
+        <a href="https://hobbyorigin-app.netlify.app/?join=true&role=seller" class="launch-role-chip">
+          🛍️ Join as Seller
+        </a>
+        <a href="https://hobbyorigin-app.netlify.app/" class="launch-role-chip">
+          🎯 Explore Groups
+        </a>
+      </div>
+
+      <!-- Waitlist for future features / new regions -->
+      <details class="wl-details">
+        <summary>📬 Get updates on new features &amp; regions instead</summary>
+        <form class="wl-form" id="waitlistForm" style="margin-top:16px">
+          <div class="wl-fields">
+            <input type="text" placeholder="Your name" required id="wlName" />
+            <input type="email" placeholder="Email address" required id="wlEmail" />
+            <select id="wlCountry">
+              <option value="">🌍 Select your country…</option>
+              <option value="GB">🇬🇧 United Kingdom</option>
+              <option value="US">🇺🇸 United States</option>
+              <option value="IN">🇮🇳 India</option>
+              <option value="AU">🇦🇺 Australia</option>
+              <option value="CA">🇨🇦 Canada</option>
+              <option value="other">🌐 Other country</option>
+            </select>
+          </div>
+          <button type="submit" class="btn-primary btn-lg">
+            <span id="wlBtnText">Keep Me Updated</span>
+          </button>
+        </form>
+        <div id="wlSuccess" class="wl-success" style="display:none">
+          🎉 You're on the list! We'll be in touch soon.
+        </div>
+      </details>
+
+      <div class="wl-social-proof">Live now for 🇬🇧 UK · 🇺🇸 USA · 🇮🇳 India · 🌍 and beyond</div>
     </div>
   </div>
 </section>

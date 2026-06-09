@@ -1091,3 +1091,94 @@ body {
   .expert-stats-row { grid-template-columns: repeat(2, 1fr); }
   .elder-testimonial { padding: 28px 20px; }
 }
+
+/* ═══════════════════════════════ NAV Sign In button ═══ */
+.btn-nav-signin {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1.5px solid rgba(255,255,255,0.15);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-nav-signin:hover {
+  color: #fff;
+  border-color: rgba(255,255,255,0.4);
+  background: rgba(255,255,255,0.06);
+}
+
+/* ═══════════════════════════════ Launch CTA section ═══ */
+.launch-ctas {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 28px 0 20px;
+  width: 100%;
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.launch-btn {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  text-align: center;
+}
+.launch-role-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 28px;
+}
+.launch-role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 99px;
+  font-size: 13px;
+  font-weight: 700;
+  background: rgba(167,139,250,0.12);
+  border: 1.5px solid rgba(167,139,250,0.3);
+  color: #c4b5fd;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.launch-role-chip:hover {
+  background: rgba(167,139,250,0.22);
+  border-color: rgba(167,139,250,0.6);
+  color: #ede9fe;
+  transform: translateY(-1px);
+}
+
+/* ═══════════════════════════════ Waitlist details toggle ═══ */
+.wl-details {
+  width: 100%;
+  max-width: 500px;
+  margin: 0 auto 20px;
+  text-align: left;
+}
+.wl-details summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: #8888aa;
+  text-align: center;
+  padding: 8px 0;
+  list-style: none;
+  transition: color 0.15s;
+}
+.wl-details summary::-webkit-details-marker { display: none; }
+.wl-details summary:hover { color: #c4b5fd; }
+.wl-details[open] summary { color: #a78bfa; }
+
+@media (max-width: 600px) {
+  .launch-ctas { max-width: 100%; }
+  .launch-role-row { gap: 8px; }
+  .launch-role-chip { font-size: 12px; padding: 6px 14px; }
+}

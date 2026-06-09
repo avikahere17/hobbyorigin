@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { ApolloProvider } from '@apollo/client';
 import { client } from './apollo';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import AuthModal from './components/AuthModal';
 import Home from './pages/Home';
@@ -16,6 +16,31 @@ import SellerDashboard from './pages/SellerDashboard';
 import Learn from './pages/Learn';
 import './App.css';
 
+// Handles ?join=true / ?login=true / ?role=expert deep-links from the marketing site
+function DeepLinkHandler({ openAuth }) {
+  const { currentUser } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (currentUser) return; // already logged in, nothing to do
+    const params = new URLSearchParams(window.location.search);
+    const join = params.get('join');
+    const login = params.get('login');
+    if (join === 'true') {
+      openAuth('register');
+    } else if (login === 'true') {
+      openAuth('login');
+    }
+    // Clean the query string from the URL without a page reload
+    if (join || login) {
+      const clean = window.location.pathname;
+      window.history.replaceState({}, '', clean);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return null;
+}
+
 function AppContent() {
   const [authModal, setAuthModal] = useState(null);
   const openAuth = (mode = 'login') => setAuthModal(mode);
@@ -23,6 +48,7 @@ function AppContent() {
 
   return (
     <BrowserRouter>
+      <DeepLinkHandler openAuth={openAuth} />
       <Navbar onAuthClick={openAuth} />
       <Routes>
         <Route path="/" element={<Home onAuthRequired={openAuth} />} />
