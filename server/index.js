@@ -23,6 +23,7 @@ const ALLOWED_ORIGINS = [
   'https://hobbyorigin.com',
   'https://www.hobbyorigin.com',
   'https://app.hobbyorigin.com',
+  'https://hobbyorigin-app.netlify.app',
   ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : []),
 ];
 
