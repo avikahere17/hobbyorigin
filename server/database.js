@@ -274,6 +274,39 @@ export async function initDB() {
       PRIMARY KEY (webinar_id, user_id)
     );
   `);
+  // ── Migrations: safely add columns that may be missing from older DB instances ──
+  const migrations = [
+    // messages: video support added after initial launch
+    `ALTER TABLE messages ADD COLUMN IF NOT EXISTS message_type TEXT DEFAULT 'TEXT'`,
+    `ALTER TABLE messages ADD COLUMN IF NOT EXISTS video_url TEXT DEFAULT ''`,
+    // users: new fields added after initial launch
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS lat REAL DEFAULT NULL`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS lng REAL DEFAULT NULL`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'GBP'`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS locale TEXT DEFAULT 'en-GB'`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'USER'`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS age INTEGER DEFAULT NULL`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS age_group TEXT DEFAULT 'ADULTS'`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS theme TEXT DEFAULT 'STANDARD'`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS building TEXT DEFAULT ''`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS neighborhood TEXT DEFAULT ''`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'en'`,
+    // groups: is_seeded added after initial launch
+    `ALTER TABLE groups ADD COLUMN IF NOT EXISTS is_seeded BOOLEAN DEFAULT FALSE`,
+    // experts: all columns (table may predate some fields)
+    `ALTER TABLE experts ADD COLUMN IF NOT EXISTS is_elder_support BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE experts ADD COLUMN IF NOT EXISTS availability TEXT DEFAULT 'Flexible'`,
+    `ALTER TABLE experts ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE experts ADD COLUMN IF NOT EXISTS rating_avg REAL DEFAULT NULL`,
+    `ALTER TABLE experts ADD COLUMN IF NOT EXISTS rating_count INTEGER DEFAULT 0`,
+    `ALTER TABLE experts ADD COLUMN IF NOT EXISTS total_sessions INTEGER DEFAULT 0`,
+  ];
+  for (const sql of migrations) {
+    await pool.query(sql).catch(err => {
+      // Only log unexpected errors (IF NOT EXISTS suppresses most)
+      if (!err.message.includes('already exists')) console.warn('Migration warning:', err.message);
+    });
+  }
   console.log('✅ PostgreSQL tables ready');
 }
 
