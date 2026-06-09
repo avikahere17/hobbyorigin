@@ -11,7 +11,7 @@ import bodyParser from 'body-parser';
 import jwt from 'jsonwebtoken';
 import { typeDefs } from './schema.js';
 import { resolvers, scheduleReminders } from './resolvers.js';
-import { getUser } from './database.js';
+import { getUser, initDB } from './database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hobbyorigin_secret_2024';
 const PORT = process.env.PORT || 4000;
@@ -49,6 +49,9 @@ function getUserFromToken(token) {
 }
 
 async function main() {
+  // Connect to PostgreSQL and create tables if they don't exist
+  await initDB();
+
   const app = express();
   const httpServer = createServer(app);
   const schema = makeExecutableSchema({ typeDefs, resolvers });
