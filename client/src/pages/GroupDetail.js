@@ -1,0 +1,495 @@
+import React, { useState } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useQuery, useMutation, useSubscription } from '@apollo/client';
+import { useAuth } from '../context/AuthContext';
+import ChatRoom from '../components/ChatRoom';
+import {
+  GROUP_QUERY, JOIN_GROUP_MUTATION, LEAVE_GROUP_MUTATION, GROUP_MEMBER_SUBSCRIPTION,
+  SEND_TIP_MUTATION, REGISTER_FOR_EVENT_MUTATION, UNREGISTER_FROM_EVENT_MUTATION,
+  CREATE_EVENT_MUTATION, CREATE_PRODUCT_MUTATION, CREATE_CAMPAIGN_MUTATION,
+} from '../graphql';
+
+const GOAL_LABELS = { AWARENESS: '📢 Awareness', SIGNUPS: '✋ Sign-ups', DONATIONS: '💝 Donations' };
+const PRODUCT_EMOJIS = ['📦','🎨','📚','🧵','🌱','🎸','🍳','🏺','✂️','🧩','🖼️','📝','🎁','🔧','🌟'];
+
+function TipModal({ toUser, groupId, onClose, onSent }) {
+  const [amount, setAmount] = useState(5);
+  const [message, setMessage] = useState('');
+  const [sendTip, { loading }] = useMutation(SEND_TIP_MUTATION);
+  const handle = async () => {
+    try {
+      await sendTip({ variables: { toUserId: toUser.id, groupId, amount, message } });
+      onSent();
+      onClose();
+    } catch (e) { alert(e.message); }
+  };
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div className="card" style={{ maxWidth: 360, width: '100%' }}>
+        <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 800, marginBottom: 4 }}>⭐ Send a Tip</h3>
+        <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)', marginBottom: 16 }}>Reward {toUser.name} for their contribution</p>
+        <div className="form-group">
+          <label className="form-label">Coins to send</label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {[1, 5, 10, 25, 50].map(v => (
+              <button key={v} type="button" onClick={() => setAmount(v)}
+                style={{ padding: '8px 16px', borderRadius: 'var(--radius-sm)', border: `2px solid ${amount === v ? 'var(--primary)' : 'var(--border)'}`, background: amount === v ? 'var(--primary-light)' : 'transparent', color: amount === v ? 'var(--primary)' : 'var(--text)', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                ⭐ {v}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Message (optional)</label>
+          <input className="input" placeholder="Great session!" value={message} onChange={e => setMessage(e.target.value)} maxLength={80} />
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" style={{ flex: 2 }} onClick={handle} disabled={loading}>{loading ? 'Sending…' : `Send ⭐ ${amount} coins`}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreateEventModal({ groupId, onClose, refetch }) {
+  const [form, setForm] = useState({ title: '', description: '', videoUrl: '', startsAt: '', durationMins: 60, capacity: 50, ticketPrice: 0 });
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const [createEvent, { loading }] = useMutation(CREATE_EVENT_MUTATION, { onCompleted: () => { refetch(); onClose(); } });
+  const handle = async () => {
+    if (!form.title || !form.startsAt) { alert('Title and start time are required'); return; }
+    try { await createEvent({ variables: { groupId, ...form, durationMins: parseInt(form.durationMins), capacity: parseInt(form.capacity), ticketPrice: parseInt(form.ticketPrice) } }); }
+    catch (e) { alert(e.message); }
+  };
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16, overflowY: 'auto' }}>
+      <div className="card" style={{ maxWidth: 480, width: '100%' }}>
+        <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 800, marginBottom: 16 }}>🎪 Create Virtual Event</h3>
+        <div className="form-group"><label className="form-label">Event title *</label><input className="input" placeholder="e.g. Summer Art Showcase" value={form.title} onChange={e => setF('title', e.target.value)} /></div>
+        <div className="form-group"><label className="form-label">Description</label><textarea className="input" rows={2} placeholder="What's this event about?" value={form.description} onChange={e => setF('description', e.target.value)} /></div>
+        <div className="form-group"><label className="form-label">Video / meeting link</label><input className="input" placeholder="https://meet.google.com/..." value={form.videoUrl} onChange={e => setF('videoUrl', e.target.value)} /></div>
+        <div className="form-group"><label className="form-label">Start date & time *</label><input className="input" type="datetime-local" value={form.startsAt} onChange={e => setF('startsAt', e.target.value)} /></div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+          <div className="form-group"><label className="form-label">Duration (mins)</label><input className="input" type="number" min={15} max={480} value={form.durationMins} onChange={e => setF('durationMins', e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Capacity</label><input className="input" type="number" min={1} max={500} value={form.capacity} onChange={e => setF('capacity', e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Ticket price (p)</label><input className="input" type="number" min={0} value={form.ticketPrice} onChange={e => setF('ticketPrice', e.target.value)} /></div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" style={{ flex: 2 }} onClick={handle} disabled={loading}>{loading ? 'Creating…' : 'Create Event'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreateProductModal({ groupId, onClose, refetch }) {
+  const [form, setForm] = useState({ name: '', description: '', price: 0, productType: 'PHYSICAL', imageEmoji: '📦', stock: -1 });
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const [createProduct, { loading }] = useMutation(CREATE_PRODUCT_MUTATION, { onCompleted: () => { refetch(); onClose(); } });
+  const handle = async () => {
+    if (!form.name) { alert('Product name is required'); return; }
+    try { await createProduct({ variables: { groupId, ...form, price: parseInt(form.price), stock: parseInt(form.stock) } }); }
+    catch (e) { alert(e.message); }
+  };
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div className="card" style={{ maxWidth: 440, width: '100%' }}>
+        <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 800, marginBottom: 16 }}>🛍️ Add to Shop</h3>
+        <div className="form-group">
+          <label className="form-label">Icon</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {PRODUCT_EMOJIS.map(e => <button key={e} type="button" onClick={() => setF('imageEmoji', e)} style={{ fontSize: 22, padding: '4px 8px', borderRadius: 8, border: `2px solid ${form.imageEmoji === e ? 'var(--primary)' : 'var(--border)'}`, background: form.imageEmoji === e ? 'var(--primary-light)' : 'transparent', cursor: 'pointer' }}>{e}</button>)}
+          </div>
+        </div>
+        <div className="form-group"><label className="form-label">Product name *</label><input className="input" placeholder="e.g. Beginner Pottery Kit" value={form.name} onChange={e => setF('name', e.target.value)} /></div>
+        <div className="form-group"><label className="form-label">Description</label><textarea className="input" rows={2} placeholder="What's included?" value={form.description} onChange={e => setF('description', e.target.value)} /></div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+          <div className="form-group"><label className="form-label">Price (£p)</label><input className="input" type="number" min={0} value={form.price} onChange={e => setF('price', e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Stock (-1=∞)</label><input className="input" type="number" min={-1} value={form.stock} onChange={e => setF('stock', e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Type</label>
+            <select className="input" value={form.productType} onChange={e => setF('productType', e.target.value)}>
+              <option value="PHYSICAL">Physical</option>
+              <option value="DIGITAL">Digital</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" style={{ flex: 2 }} onClick={handle} disabled={loading}>{loading ? 'Adding…' : 'Add Product'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreateCampaignModal({ groupId, onClose, refetch }) {
+  const [form, setForm] = useState({ title: '', goal: 'AWARENESS', description: '', targetAgeGroups: [], targetCity: '', startDate: '', endDate: '' });
+  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const toggleAG = ag => setF('targetAgeGroups', form.targetAgeGroups.includes(ag) ? form.targetAgeGroups.filter(x => x !== ag) : [...form.targetAgeGroups, ag]);
+  const [createCampaign, { loading }] = useMutation(CREATE_CAMPAIGN_MUTATION, { onCompleted: () => { refetch(); onClose(); } });
+  const handle = async () => {
+    if (!form.title || !form.startDate || !form.endDate) { alert('Title and dates are required'); return; }
+    try { await createCampaign({ variables: { groupId, ...form } }); }
+    catch (e) { alert(e.message); }
+  };
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div className="card" style={{ maxWidth: 440, width: '100%' }}>
+        <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 800, marginBottom: 16 }}>📢 Create Campaign</h3>
+        <div className="form-group"><label className="form-label">Campaign title *</label><input className="input" placeholder="e.g. Spring Art Festival" value={form.title} onChange={e => setF('title', e.target.value)} /></div>
+        <div className="form-group"><label className="form-label">Goal</label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {['AWARENESS','SIGNUPS','DONATIONS'].map(g => <button key={g} type="button" onClick={() => setF('goal', g)} style={{ padding: '7px 14px', borderRadius: 'var(--radius-sm)', border: `2px solid ${form.goal === g ? 'var(--primary)' : 'var(--border)'}`, background: form.goal === g ? 'var(--primary-light)' : 'transparent', color: form.goal === g ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 600, fontSize: 'var(--font-sm)', fontFamily: 'inherit' }}>{GOAL_LABELS[g]}</button>)}
+          </div>
+        </div>
+        <div className="form-group"><label className="form-label">Description</label><textarea className="input" rows={2} placeholder="What is this campaign about?" value={form.description} onChange={e => setF('description', e.target.value)} /></div>
+        <div className="form-group"><label className="form-label">Target audience</label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {['KIDS','TEENS','ADULTS','SENIORS'].map(ag => <button key={ag} type="button" onClick={() => toggleAG(ag)} style={{ padding: '6px 12px', borderRadius: 'var(--radius-sm)', border: `2px solid ${form.targetAgeGroups.includes(ag) ? 'var(--primary)' : 'var(--border)'}`, background: form.targetAgeGroups.includes(ag) ? 'var(--primary-light)' : 'transparent', color: form.targetAgeGroups.includes(ag) ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', fontWeight: 600, fontSize: 'var(--font-sm)', fontFamily: 'inherit' }}>{ag}</button>)}
+          </div>
+        </div>
+        <div className="form-group"><label className="form-label">Target city</label><input className="input" placeholder="London (leave blank for all)" value={form.targetCity} onChange={e => setF('targetCity', e.target.value)} /></div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div className="form-group"><label className="form-label">Start date *</label><input className="input" type="date" value={form.startDate} onChange={e => setF('startDate', e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">End date *</label><input className="input" type="date" value={form.endDate} onChange={e => setF('endDate', e.target.value)} /></div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" style={{ flex: 2 }} onClick={handle} disabled={loading}>{loading ? 'Launching…' : 'Launch Campaign'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function GroupDetail({ onAuthRequired }) {
+  const { id } = useParams();
+  const { currentUser } = useAuth();
+  const [tab, setTab] = useState('chat');
+  const [tipTarget, setTipTarget] = useState(null);
+  const [showCreateEvent, setShowCreateEvent] = useState(false);
+  const [showCreateProduct, setShowCreateProduct] = useState(false);
+  const [showCreateCampaign, setShowCreateCampaign] = useState(false);
+
+  const { data, loading, error, updateQuery, refetch } = useQuery(GROUP_QUERY, { variables: { id }, fetchPolicy: 'cache-and-network' });
+
+  const [joinGroup, { loading: joining }] = useMutation(JOIN_GROUP_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
+  const [leaveGroup, { loading: leaving }] = useMutation(LEAVE_GROUP_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
+  const [registerForEvent] = useMutation(REGISTER_FOR_EVENT_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
+  const [unregisterFromEvent] = useMutation(UNREGISTER_FROM_EVENT_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
+
+  useSubscription(GROUP_MEMBER_SUBSCRIPTION, {
+    variables: { groupId: id },
+    onData: ({ data: subData }) => {
+      const updated = subData.data?.groupMemberChanged;
+      if (updated) updateQuery(prev => ({ group: { ...prev.group, memberCount: updated.memberCount, isOpen: updated.isOpen, members: updated.members } }));
+    },
+  });
+
+  if (loading && !data) return <div className="page"><div className="loading-center"><div className="spinner" /></div></div>;
+  if (error || !data?.group) return (
+    <div className="page container" style={{ paddingTop: 100 }}>
+      <div className="empty-state"><div className="empty-state-icon">😕</div><div className="empty-state-title">Group not found</div>
+        <Link to="/" className="btn btn-primary" style={{ marginTop: 16 }}>Back to groups</Link></div>
+    </div>
+  );
+
+  const group = data.group;
+  const pct = (group.memberCount / group.maxMembers) * 100;
+  const isCreator = group.creator.id === currentUser?.id;
+
+  const handleJoin = async () => {
+    if (!currentUser) { onAuthRequired(); return; }
+    try { await joinGroup({ variables: { groupId: id } }); } catch (e) { alert(e.message); }
+  };
+  const handleLeave = async () => {
+    if (!window.confirm('Leave this group?')) return;
+    try { await leaveGroup({ variables: { groupId: id } }); } catch (e) { alert(e.message); }
+  };
+
+  return (
+    <div className="page" style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      {/* Header */}
+      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '16px 0', flexShrink: 0 }}>
+        <div className="container">
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                <Link to="/" style={{ color: 'var(--text-muted)', fontSize: 13 }}>← Groups</Link>
+                <span style={{ color: 'var(--text-dim)' }}>/</span>
+                <span className="badge badge-primary">{group.category}</span>
+                <span className={`badge ${group.isOpen ? 'badge-success' : 'badge-full'}`}>{group.isOpen ? '● Open' : '● Full'}</span>
+                {group.schedule?.day && <span className="badge badge-dim">📅 {group.schedule.day}s at {group.schedule.time}</span>}
+              </div>
+              <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>{group.name}</h1>
+              <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 10 }}>{group.description}</p>
+              {group.tags?.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {group.tags.map(t => <span key={t} className="badge badge-dim" style={{ fontSize: 11 }}>#{t}</span>)}
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+              {group.isMember ? (
+                !isCreator && <button className="btn btn-ghost btn-sm" onClick={handleLeave} disabled={leaving}>{leaving ? '…' : 'Leave group'}</button>
+              ) : (
+                <button className="btn btn-primary" onClick={handleJoin} disabled={joining || !group.isOpen}>
+                  {joining ? 'Joining…' : group.isOpen ? 'Join Group' : 'Group Full'}
+                </button>
+              )}
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'right' }}>
+                {group.memberCount}/{group.maxMembers} members
+                <div style={{ height: 3, width: 80, background: 'var(--surface3)', borderRadius: 2, marginTop: 4 }}>
+                  <div style={{ height: '100%', width: `${pct}%`, background: pct >= 100 ? 'var(--danger)' : 'var(--primary)', borderRadius: 2 }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="container" style={{ flex: 1, display: 'flex', gap: 0, overflow: 'hidden', padding: '0 16px' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+          <div className="tabs" style={{ marginBottom: 0, marginTop: 16, overflowX: 'auto', flexShrink: 0 }}>
+            <button className={`tab ${tab === 'chat' ? 'active' : ''}`} onClick={() => setTab('chat')}>💬 Chat</button>
+            <button className={`tab ${tab === 'events' ? 'active' : ''}`} onClick={() => setTab('events')}>🎪 Events {group.events?.length > 0 && `(${group.events.length})`}</button>
+            <button className={`tab ${tab === 'shop' ? 'active' : ''}`} onClick={() => setTab('shop')}>🛍️ Shop {group.products?.length > 0 && `(${group.products.length})`}</button>
+            <button className={`tab ${tab === 'campaigns' ? 'active' : ''}`} onClick={() => setTab('campaigns')}>📢 Campaigns</button>
+            <button className={`tab ${tab === 'members' ? 'active' : ''}`} onClick={() => setTab('members')}>👥 Members ({group.memberCount})</button>
+            <button className={`tab ${tab === 'about' ? 'active' : ''}`} onClick={() => setTab('about')}>ℹ About</button>
+          </div>
+
+          <div style={{ flex: 1, overflow: 'hidden', background: 'var(--surface)', borderRadius: '0 0 var(--radius) var(--radius)', border: '1px solid var(--border)', borderTop: 'none' }}>
+
+            {tab === 'chat' && <ChatRoom group={group} />}
+
+            {tab === 'events' && (
+              <div style={{ padding: 20, overflowY: 'auto', height: '100%' }}>
+                {isCreator && (
+                  <button className="btn btn-primary btn-sm" style={{ marginBottom: 16 }} onClick={() => setShowCreateEvent(true)}>+ Create Event</button>
+                )}
+                {!group.events?.length ? (
+                  <div className="empty-state" style={{ padding: '30px 0' }}>
+                    <div className="empty-state-icon">🎪</div>
+                    <div className="empty-state-title">No events yet</div>
+                    <div className="empty-state-desc">{isCreator ? 'Create a virtual event for your group members.' : 'The group creator can schedule virtual events here.'}</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {group.events.map(ev => <EventCard key={ev.id} event={ev} currentUser={currentUser} onRegister={() => registerForEvent({ variables: { eventId: ev.id } })} onUnregister={() => unregisterFromEvent({ variables: { eventId: ev.id } })} />)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'shop' && (
+              <div style={{ padding: 20, overflowY: 'auto', height: '100%' }}>
+                {isCreator && (
+                  <button className="btn btn-primary btn-sm" style={{ marginBottom: 16 }} onClick={() => setShowCreateProduct(true)}>+ Add Product</button>
+                )}
+                {!group.products?.length ? (
+                  <div className="empty-state" style={{ padding: '30px 0' }}>
+                    <div className="empty-state-icon">🛍️</div>
+                    <div className="empty-state-title">Shop is empty</div>
+                    <div className="empty-state-desc">{isCreator ? 'Add products, kits, or digital resources for members to purchase.' : 'No products listed yet.'}</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 12 }}>
+                    {group.products.map(p => <ProductCard key={p.id} product={p} />)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'campaigns' && (
+              <div style={{ padding: 20, overflowY: 'auto', height: '100%' }}>
+                {isCreator && (
+                  <button className="btn btn-primary btn-sm" style={{ marginBottom: 16 }} onClick={() => setShowCreateCampaign(true)}>+ Launch Campaign</button>
+                )}
+                {!group.campaigns?.length ? (
+                  <div className="empty-state" style={{ padding: '30px 0' }}>
+                    <div className="empty-state-icon">📢</div>
+                    <div className="empty-state-title">No campaigns yet</div>
+                    <div className="empty-state-desc">{isCreator ? 'Create a campaign to grow your group&apos;s reach.' : 'No active campaigns.'}</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {group.campaigns.map(c => <CampaignCard key={c.id} campaign={c} />)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'members' && (
+              <div style={{ padding: 20, overflowY: 'auto', height: '100%' }}>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {group.members.map(m => (
+                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--surface2)', borderRadius: 'var(--radius-sm)' }}>
+                      <Link to={`/profile/${m.id}`} style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+                        <div className="avatar avatar-md" style={{ background: m.avatarColor, flexShrink: 0 }}>{m.name[0].toUpperCase()}</div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 14 }}>
+                            {m.name}
+                            {m.id === group.creator.id && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--primary)', background: 'var(--primary-light)', padding: '2px 6px', borderRadius: 4 }}>Creator</span>}
+                            {m.id === currentUser?.id && <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)' }}>You</span>}
+                          </div>
+                          {m.interests?.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                              {m.interests.slice(0, 4).map(i => <span key={i} className="badge badge-dim" style={{ fontSize: 10 }}>{i}</span>)}
+                            </div>
+                          )}
+                        </div>
+                      </Link>
+                      {currentUser && m.id !== currentUser.id && group.isMember && (
+                        <button className="btn btn-ghost btn-sm" onClick={() => setTipTarget(m)} style={{ flexShrink: 0 }}>⭐ Tip</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {tab === 'about' && (
+              <div style={{ padding: 20, overflowY: 'auto', height: '100%' }}>
+                <div style={{ display: 'grid', gap: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Created by</div>
+                    <Link to={`/profile/${group.creator.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div className="avatar avatar-md" style={{ background: group.creator.avatarColor }}>{group.creator.name[0].toUpperCase()}</div>
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{group.creator.name}</div>
+                        {group.creator.tipsEarned > 0 && <div style={{ fontSize: 12, color: 'var(--warning)' }}>⭐ {group.creator.tipsEarned} coins earned</div>}
+                      </div>
+                    </Link>
+                  </div>
+                  {group.schedule?.day && (
+                    <div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Schedule</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <span className="badge badge-dim">📅 {group.schedule.day}s</span>
+                        <span className="badge badge-dim">🕐 {group.schedule.time}</span>
+                        {group.schedule.frequency && <span className="badge badge-dim">🔄 {group.schedule.frequency}</span>}
+                        {group.schedule.duration && <span className="badge badge-dim">⏱ {group.schedule.duration} min</span>}
+                      </div>
+                      {group.schedule.nextSession && (
+                        <div style={{ marginTop: 8, fontSize: 13, color: 'var(--success)' }}>
+                          Next: {new Date(group.schedule.nextSession).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Location</div>
+                    <div style={{ fontSize: 13 }}>{[group.location?.building, group.location?.city, group.location?.country].filter(Boolean).join(', ') || 'Online / Any location'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Capacity</div>
+                    <div>{group.memberCount} of {group.maxMembers} spots filled</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Age groups</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {group.ageGroups.map(ag => <span key={ag} className={`badge ag-${ag}`}>{ag}</span>)}
+                    </div>
+                  </div>
+                  {currentUser && group.isMember && group.creator.id !== currentUser.id && (
+                    <div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Appreciate the creator</div>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setTipTarget(group.creator)}>⭐ Send Tip to {group.creator.name}</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {tipTarget && <TipModal toUser={tipTarget} groupId={id} onClose={() => setTipTarget(null)} onSent={() => refetch()} />}
+      {showCreateEvent && <CreateEventModal groupId={id} onClose={() => setShowCreateEvent(false)} refetch={refetch} />}
+      {showCreateProduct && <CreateProductModal groupId={id} onClose={() => setShowCreateProduct(false)} refetch={refetch} />}
+      {showCreateCampaign && <CreateCampaignModal groupId={id} onClose={() => setShowCreateCampaign(false)} refetch={refetch} />}
+    </div>
+  );
+}
+
+function EventCard({ event, currentUser, onRegister, onUnregister }) {
+  const isPast = new Date(event.startsAt) < new Date();
+  const spotsLeft = event.capacity - event.registrationCount;
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+            <span style={{ fontSize: 'var(--font-base)', fontWeight: 800 }}>🎪 {event.title}</span>
+            <span className="badge" style={{ background: isPast ? 'var(--surface3)' : 'rgba(16,185,129,0.15)', color: isPast ? 'var(--text-muted)' : 'var(--success)' }}>{isPast ? 'Past' : 'Upcoming'}</span>
+            {event.ticketPrice > 0 && <span className="badge badge-dim">🎟 £{(event.ticketPrice / 100).toFixed(2)}</span>}
+          </div>
+          {event.description && <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 6 }}>{event.description}</p>}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 'var(--font-sm)', color: 'var(--text-muted)' }}>
+            <span>📅 {new Date(event.startsAt).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+            <span>⏱ {event.durationMins} min</span>
+            <span>👥 {event.registrationCount}/{event.capacity}</span>
+          </div>
+        </div>
+        {currentUser && !isPast && (
+          <div style={{ flexShrink: 0 }}>
+            {event.isRegistered ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+                {event.videoUrl && <a href={event.videoUrl} target="_blank" rel="noreferrer" className="btn btn-primary btn-sm">▶ Join Now</a>}
+                <button className="btn btn-ghost btn-sm" onClick={onUnregister}>Unregister</button>
+              </div>
+            ) : (
+              <button className="btn btn-primary btn-sm" onClick={onRegister} disabled={spotsLeft <= 0}>{spotsLeft <= 0 ? 'Full' : 'Register'}</button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProductCard({ product }) {
+  const price = product.price === 0 ? 'Free' : `£${(product.price / 100).toFixed(2)}`;
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'center' }}>
+      <div style={{ fontSize: 40, marginBottom: 4 }}>{product.imageEmoji}</div>
+      <div style={{ fontWeight: 700, fontSize: 'var(--font-base)' }}>{product.name}</div>
+      {product.description && <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)' }}>{product.description}</div>}
+      <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
+        <span className="badge badge-primary" style={{ fontWeight: 800 }}>{price}</span>
+        <span className="badge badge-dim">{product.productType === 'DIGITAL' ? '💾 Digital' : '📦 Physical'}</span>
+        {product.stock >= 0 && <span className="badge badge-dim">{product.stock} left</span>}
+      </div>
+      <button className="btn btn-primary btn-sm" style={{ marginTop: 4 }}>🛒 Enquire</button>
+    </div>
+  );
+}
+
+function CampaignCard({ campaign }) {
+  const isActive = new Date(campaign.startDate) <= new Date() && new Date(campaign.endDate) >= new Date();
+  return (
+    <div className="card" style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+          <span style={{ fontWeight: 800, fontSize: 'var(--font-base)' }}>{campaign.title}</span>
+          <span className="badge" style={{ background: isActive ? 'rgba(16,185,129,0.15)' : 'var(--surface3)', color: isActive ? 'var(--success)' : 'var(--text-muted)' }}>{isActive ? '🟢 Live' : '⏸ Inactive'}</span>
+          <span className="badge badge-dim">{GOAL_LABELS[campaign.goal]}</span>
+        </div>
+        {campaign.description && <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 6 }}>{campaign.description}</p>}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 'var(--font-sm)', color: 'var(--text-muted)' }}>
+          {campaign.targetCity && <span>📍 {campaign.targetCity}</span>}
+          {campaign.targetAgeGroups?.length > 0 && <span>👥 {campaign.targetAgeGroups.join(', ')}</span>}
+          <span>📅 {campaign.startDate} → {campaign.endDate}</span>
+        </div>
+      </div>
+      {isActive && (
+        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard?.writeText(window.location.href); alert('Link copied!'); }}>🔗 Share</button>
+        </div>
+      )}
+    </div>
+  );
+}

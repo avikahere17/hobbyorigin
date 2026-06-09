@@ -1,0 +1,200 @@
+export const typeDefs = `#graphql
+  enum AgeGroup { KIDS TEENS ADULTS SENIORS }
+  enum Theme { PLAYFUL STANDARD ACCESSIBLE }
+  enum ProductType { PHYSICAL DIGITAL }
+  enum CampaignGoal { AWARENESS SIGNUPS DONATIONS }
+  enum EventStatus { UPCOMING LIVE ENDED }
+
+  type Location {
+    building: String
+    neighborhood: String
+    city: String
+    country: String
+  }
+
+  type Schedule {
+    day: String
+    time: String
+    frequency: String
+    duration: Int
+    nextSession: String
+  }
+
+  type NotificationPrefs {
+    session_reminder: Boolean
+    new_member: Boolean
+    new_buddy: Boolean
+  }
+
+  type User {
+    id: ID!
+    name: String!
+    email: String!
+    bio: String!
+    interests: [String!]!
+    avatarColor: String!
+    age: Int
+    ageGroup: AgeGroup!
+    theme: Theme!
+    location: Location!
+    language: String!
+    joinedGroups: [Group!]!
+    unreadCount: Int!
+    tipsEarned: Int!
+    walletCoins: Int!
+    children: [User!]!
+    createdAt: String!
+  }
+
+  type Group {
+    id: ID!
+    name: String!
+    description: String!
+    category: String!
+    tags: [String!]!
+    maxMembers: Int!
+    memberCount: Int!
+    ageGroups: [AgeGroup!]!
+    location: Location!
+    schedule: Schedule
+    members: [User!]!
+    messages: [Message!]!
+    creator: User!
+    isOpen: Boolean!
+    isMember: Boolean!
+    events: [Event!]!
+    products: [Product!]!
+    campaigns: [Campaign!]!
+    createdAt: String!
+  }
+
+  type Message {
+    id: ID!
+    content: String!
+    sender: User!
+    groupId: ID!
+    createdAt: String!
+  }
+
+  type Notification {
+    id: ID!
+    type: String!
+    title: String!
+    message: String!
+    isRead: Boolean!
+    groupId: ID
+    actorId: ID
+    scheduledFor: String
+    createdAt: String!
+  }
+
+  type FolkResult {
+    user: User!
+    sharedInterests: [String!]!
+    proximity: String!
+    buddyStatus: String
+  }
+
+  type AuthPayload {
+    token: String!
+    user: User!
+  }
+
+  type Tip {
+    id: ID!
+    fromId: ID!
+    toId: ID!
+    groupId: ID
+    amount: Int!
+    message: String!
+    createdAt: String!
+  }
+
+  type Event {
+    id: ID!
+    groupId: ID!
+    title: String!
+    description: String!
+    videoUrl: String!
+    startsAt: String!
+    durationMins: Int!
+    capacity: Int!
+    ticketPrice: Int!
+    status: EventStatus!
+    registrationCount: Int!
+    isRegistered: Boolean!
+    creator: User!
+    createdAt: String!
+  }
+
+  type Product {
+    id: ID!
+    groupId: ID!
+    name: String!
+    description: String!
+    price: Int!
+    productType: ProductType!
+    imageEmoji: String!
+    stock: Int!
+    creator: User!
+    createdAt: String!
+  }
+
+  type Campaign {
+    id: ID!
+    groupId: ID!
+    title: String!
+    goal: CampaignGoal!
+    description: String!
+    targetAgeGroups: [AgeGroup!]!
+    targetCity: String!
+    startDate: String!
+    endDate: String!
+    creator: User!
+    createdAt: String!
+  }
+
+  type Wallet {
+    userId: ID!
+    coins: Int!
+  }
+
+  type Query {
+    me: User
+    groups(category: String, search: String, city: String, building: String, ageGroup: AgeGroup): [Group!]!
+    group(id: ID!): Group
+    user(id: ID!): User
+    findFolks(interests: [String!], city: String, building: String, neighborhood: String, ageGroup: AgeGroup): [FolkResult!]!
+    myNotifications: [Notification!]!
+    myWallet: Wallet!
+    groupEvents(groupId: ID!): [Event!]!
+    groupProducts(groupId: ID!): [Product!]!
+    groupCampaigns(groupId: ID!): [Campaign!]!
+  }
+
+  type Mutation {
+    register(name: String!, email: String!, password: String!, age: Int, city: String, country: String, building: String, neighborhood: String): AuthPayload!
+    login(email: String!, password: String!): AuthPayload!
+    updateProfile(bio: String, interests: [String!], age: Int, building: String, neighborhood: String, city: String, country: String, language: String, theme: Theme): User!
+    createGroup(name: String!, description: String!, category: String!, tags: [String!], maxMembers: Int!, ageGroups: [AgeGroup!], city: String, building: String, neighborhood: String, scheduleDay: String, scheduleTime: String, scheduleFrequency: String, scheduleDuration: Int): Group!
+    joinGroup(groupId: ID!): Group!
+    leaveGroup(groupId: ID!): Group!
+    sendMessage(groupId: ID!, content: String!): Message!
+    sendBuddyRequest(toUserId: ID!): Boolean!
+    markNotificationsRead: Boolean!
+    sendTip(toUserId: ID!, groupId: ID, amount: Int!, message: String): Tip!
+    createEvent(groupId: ID!, title: String!, description: String, videoUrl: String, startsAt: String!, durationMins: Int, capacity: Int, ticketPrice: Int): Event!
+    registerForEvent(eventId: ID!): Event!
+    unregisterFromEvent(eventId: ID!): Event!
+    createProduct(groupId: ID!, name: String!, description: String, price: Int!, productType: ProductType, imageEmoji: String, stock: Int): Product!
+    createCampaign(groupId: ID!, title: String!, goal: CampaignGoal, description: String, targetAgeGroups: [AgeGroup!], targetCity: String, startDate: String!, endDate: String!): Campaign!
+    addCoins(userId: ID!, amount: Int!): Wallet!
+    linkChild(childEmail: String!): User!
+  }
+
+  type Subscription {
+    messageSent(groupId: ID!): Message!
+    groupMemberChanged(groupId: ID!): Group!
+    notificationReceived: Notification!
+  }
+`;
