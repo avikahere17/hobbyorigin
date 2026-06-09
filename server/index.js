@@ -9,6 +9,8 @@ import { useServer } from 'graphql-ws/lib/use/ws';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import jwt from 'jsonwebtoken';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { typeDefs } from './schema.js';
 import { resolvers, scheduleReminders } from './resolvers.js';
 import { getUser, initDB } from './database.js';
@@ -55,6 +57,31 @@ async function main() {
 
   const app = express();
   const httpServer = createServer(app);
+
+  // ── Security headers (GDPR/CPRA: data minimisation, XSS, clickjacking) ──
+  app.use(helmet({
+    contentSecurityPolicy: false,   // Apollo Studio needs this disabled; tighten in prod with specific directives
+    crossOriginEmbedderPolicy: false,
+  }));
+  app.set('trust proxy', 1); // Required for rate-limit behind Render/Netlify proxies
+
+  // ── Rate limiting ──────────────────────────────────────────────────────────
+  // Strict limiter for auth mutations (login/register) — brute-force protection
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,  // 15 minutes
+    max: 20,                    // 20 attempts per IP per window
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { errors: [{ message: 'Too many requests — please wait 15 minutes before trying again.' }] },
+  });
+  // General API limiter
+  const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,        // 1 minute
+    max: 300,                   // 300 requests/min per IP
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use('/graphql', apiLimiter);
   const schema = makeExecutableSchema({ typeDefs, resolvers });
   const pubsub = new PubSub();
 
@@ -77,6 +104,14 @@ async function main() {
     ],
   });
   await server.start();
+
+  // Apply strict rate limit to auth operations at HTTP level
+  app.use('/graphql', (req, res, next) => {
+    const body = req.body || {};
+    const op = body.operationName || '';
+    if (['Login', 'Register'].includes(op)) return authLimiter(req, res, next);
+    next();
+  });
 
   app.use('/graphql', cors({
     origin: (origin, cb) => {

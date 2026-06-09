@@ -14,6 +14,8 @@ import AdminDashboard from './pages/AdminDashboard';
 import ExpertDashboard from './pages/ExpertDashboard';
 import SellerDashboard from './pages/SellerDashboard';
 import Learn from './pages/Learn';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import CookieConsent from './components/CookieConsent';
 import './App.css';
 
 // Handles ?join=true / ?login=true / ?role=expert deep-links from the marketing site
@@ -60,8 +62,10 @@ function AppContent() {
         <Route path="/expert" element={<ExpertDashboard />} />
         <Route path="/seller" element={<SellerDashboard />} />
         <Route path="/learn" element={<Learn />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
       </Routes>
       {authModal && <AuthModal mode={authModal} onClose={closeAuth} />}
+      <CookieConsent />
     </BrowserRouter>
   );
 }

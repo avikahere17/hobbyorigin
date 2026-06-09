@@ -271,6 +271,24 @@ export const typeDefs = `#graphql
     createdAt: String!
   }
 
+  type CookiePreferences {
+    necessary: Boolean!
+    analytics: Boolean!
+    marketing: Boolean!
+  }
+
+  type PrivacySettings {
+    userId: ID!
+    termsAcceptedAt: String
+    privacyAcceptedAt: String
+    marketingConsent: Boolean!
+    analyticsConsent: Boolean!
+    doNotSell: Boolean!
+    dataProcessingConsent: Boolean!
+    cookiePreferences: CookiePreferences!
+    lastUpdated: String!
+  }
+
   type AdminStats {
     totalUsers: Int!
     totalGroups: Int!
@@ -302,6 +320,7 @@ export const typeDefs = `#graphql
     coupon(code: String!): Coupon
     adminStats: AdminStats!
     adminUsers(search: String, role: UserRole): [User!]!
+    myPrivacySettings: PrivacySettings
     learningContent(category: String, contentType: ContentType, search: String): [LearningContent!]!
     learningContentItem(id: ID!): LearningContent
     groupWebinars(groupId: ID!): [Webinar!]!
@@ -345,6 +364,10 @@ export const typeDefs = `#graphql
     startWebinar(webinarId: ID!, meetingUrl: String): Webinar!
     endWebinar(webinarId: ID!): Webinar!
     rewardWebinarHost(webinarId: ID!, amount: Int!, message: String): Webinar!
+    updatePrivacySettings(marketingConsent: Boolean, analyticsConsent: Boolean, doNotSell: Boolean, dataProcessingConsent: Boolean, cookiePreferences: String): PrivacySettings!
+    requestDataExport: String!
+    deleteMyAccount(password: String!): Boolean!
+    recordConsent(termsAccepted: Boolean, privacyAccepted: Boolean): PrivacySettings!
   }
 
   type Subscription {

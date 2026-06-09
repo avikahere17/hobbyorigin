@@ -271,3 +271,22 @@ export const LEAVE_WEBINAR_MUTATION = gql`mutation LeaveWebinar($webinarId:ID!) 
 export const START_WEBINAR_MUTATION = gql`mutation StartWebinar($webinarId:ID!,$meetingUrl:String) { startWebinar(webinarId:$webinarId,meetingUrl:$meetingUrl) { ${WEBINAR_FIELDS} } }`;
 export const END_WEBINAR_MUTATION = gql`mutation EndWebinar($webinarId:ID!) { endWebinar(webinarId:$webinarId) { ${WEBINAR_FIELDS} } }`;
 export const REWARD_HOST_MUTATION = gql`mutation RewardHost($webinarId:ID!,$amount:Int!,$message:String) { rewardWebinarHost(webinarId:$webinarId,amount:$amount,message:$message) { ${WEBINAR_FIELDS} } }`;
+
+/* ═══════════════════════════════════════ PRIVACY / COMPLIANCE ════════════ */
+
+const PRIVACY_FIELDS = `userId termsAcceptedAt privacyAcceptedAt marketingConsent analyticsConsent doNotSell dataProcessingConsent lastUpdated
+  cookiePreferences { necessary analytics marketing }`;
+
+export const MY_PRIVACY_SETTINGS_QUERY = gql`query MyPrivacySettings {
+  myPrivacySettings { ${PRIVACY_FIELDS} }
+}`;
+
+export const UPDATE_PRIVACY_SETTINGS_MUTATION = gql`mutation UpdatePrivacySettings($marketingConsent:Boolean,$analyticsConsent:Boolean,$doNotSell:Boolean,$dataProcessingConsent:Boolean,$cookiePreferences:String) {
+  updatePrivacySettings(marketingConsent:$marketingConsent,analyticsConsent:$analyticsConsent,doNotSell:$doNotSell,dataProcessingConsent:$dataProcessingConsent,cookiePreferences:$cookiePreferences) { ${PRIVACY_FIELDS} }
+}`;
+
+export const REQUEST_DATA_EXPORT_MUTATION = gql`mutation RequestDataExport { requestDataExport }`;
+export const DELETE_MY_ACCOUNT_MUTATION = gql`mutation DeleteMyAccount($password:String!) { deleteMyAccount(password:$password) }`;
+export const RECORD_CONSENT_MUTATION = gql`mutation RecordConsent($termsAccepted:Boolean,$privacyAccepted:Boolean) {
+  recordConsent(termsAccepted:$termsAccepted,privacyAccepted:$privacyAccepted) { ${PRIVACY_FIELDS} }
+}`;

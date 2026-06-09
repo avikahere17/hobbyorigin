@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@apollo/client';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n';
 import { useAuth } from '../context/AuthContext';
-import { USER_QUERY, UPDATE_PROFILE_MUTATION, ME_QUERY, LINK_CHILD_MUTATION, ADD_COINS_MUTATION } from '../graphql';
+import { USER_QUERY, UPDATE_PROFILE_MUTATION, ME_QUERY, LINK_CHILD_MUTATION, ADD_COINS_MUTATION,
+  MY_PRIVACY_SETTINGS_QUERY, UPDATE_PRIVACY_SETTINGS_MUTATION, REQUEST_DATA_EXPORT_MUTATION, DELETE_MY_ACCOUNT_MUTATION } from '../graphql';
 import { CURRENCY_OPTIONS, formatCurrency } from '../utils/currency';
 import { SUPPORTED_LOCALES, COUNTRY_PRESETS } from '../i18n';
 
@@ -18,7 +19,8 @@ const COMMON_INTERESTS = ['Reading','Music','Gaming','Art','Cooking','Gardening'
 export default function Profile() {
   const { t } = useTranslation();
   const { id } = useParams();
-  const { currentUser, updateCurrentUser } = useAuth();
+  const { currentUser, updateCurrentUser, logout } = useAuth();
+  const navigate = useNavigate();
   const isOwn = currentUser?.id === id;
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
@@ -33,6 +35,17 @@ export default function Profile() {
   const [updateProfile, {loading:saving}] = useMutation(UPDATE_PROFILE_MUTATION, { refetchQueries:[{query:ME_QUERY}] });
   const [linkChild, {loading:linking}] = useMutation(LINK_CHILD_MUTATION, { refetchQueries:[{query:USER_QUERY,variables:{id}}] });
   const [addCoins, {loading:addingCoins}] = useMutation(ADD_COINS_MUTATION, { refetchQueries:[{query:USER_QUERY,variables:{id}}] });
+
+  // Privacy / compliance
+  const [privacyTab, setPrivacyTab] = useState(false);
+  const [deleteConfirmPw, setDeleteConfirmPw] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [exportDone, setExportDone] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const { data: privacyData, refetch: refetchPrivacy } = useQuery(MY_PRIVACY_SETTINGS_QUERY, { skip: !isOwn });
+  const [updatePrivacy, { loading: privacySaving }] = useMutation(UPDATE_PRIVACY_SETTINGS_MUTATION, { onCompleted: () => refetchPrivacy() });
+  const [requestExport] = useMutation(REQUEST_DATA_EXPORT_MUTATION);
+  const [deleteAccount, { loading: deleting }] = useMutation(DELETE_MY_ACCOUNT_MUTATION);
 
   if (loading) return <div className="page"><div className="loading-center"><div className="spinner" /></div></div>;
   if (!data?.user) return <div className="page container" style={{paddingTop:100}}><div className="empty-state"><div className="empty-state-icon">😕</div><div className="empty-state-title">User not found</div></div></div>;
@@ -282,6 +295,122 @@ export default function Profile() {
               </div>
               <div style={{fontSize:'var(--font-sm)',color:'var(--text-dim)',marginTop:6}}>The child must already have a HobbyOrigin account (KIDS or TEENS).</div>
             </div>
+          </div>
+        )}
+
+        {/* ── Privacy & Compliance panel (own profile only) ── */}
+        {isOwn && (
+          <div className="card" style={{ marginTop: 20 }}>
+            <button onClick={() => setPrivacyTab(v => !v)}
+              style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: 'inherit', padding: 0 }}>
+              <h3 style={{ fontWeight: 800, fontSize: 'var(--font-base)', margin: 0 }}>🔒 Privacy &amp; Data Rights</h3>
+              <span style={{ color: 'var(--text-muted)', fontSize: 18 }}>{privacyTab ? '▲' : '▼'}</span>
+            </button>
+
+            {privacyTab && (() => {
+              const ps = privacyData?.myPrivacySettings;
+              const handlePrivacyToggle = (key, val) => updatePrivacy({ variables: { [key]: val } });
+              const handleExport = async () => {
+                setExportLoading(true);
+                try {
+                  const { data: ed } = await requestExport();
+                  const json = ed?.requestDataExport || '{}';
+                  const blob = new Blob([json], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a'); a.href = url; a.download = `hobbyorigin-data-${Date.now()}.json`; a.click();
+                  URL.revokeObjectURL(url);
+                  setExportDone(true);
+                } catch(e) { alert(e.message); }
+                setExportLoading(false);
+              };
+              const handleDelete = async () => {
+                setDeleteError('');
+                if (!deleteConfirmPw) { setDeleteError('Please enter your password to confirm.'); return; }
+                if (!window.confirm('This will permanently delete your account. This cannot be undone. Are you absolutely sure?')) return;
+                try {
+                  await deleteAccount({ variables: { password: deleteConfirmPw } });
+                  logout(); navigate('/');
+                } catch(e) { setDeleteError(e.message); }
+              };
+
+              return (
+                <div style={{ marginTop: 20 }}>
+                  <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 20, lineHeight: 1.7 }}>
+                    HobbyOrigin complies with <strong>GDPR</strong> and <strong>CPRA</strong>. Manage your data and consent preferences below.{' '}
+                    <Link to="/privacy" style={{ color: 'var(--primary)' }}>Full Privacy Policy →</Link>
+                  </p>
+
+                  {/* Consent toggles */}
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 12 }}>Consent &amp; Preferences</div>
+                    {[
+                      { key: 'marketingConsent', label: '📣 Marketing communications', desc: 'Hobby recommendations, expert picks, new features by email' },
+                      { key: 'analyticsConsent', label: '📊 Analytics cookies', desc: 'Help us improve HobbyOrigin with anonymous usage data' },
+                      { key: 'doNotSell', label: '🚫 Do Not Sell or Share My Data (CPRA)', desc: 'Opt out of any sale or sharing of your personal information with third parties for advertising. We do not sell your data, but you can formally record this preference.' },
+                    ].map(({ key, label, desc }) => (
+                      <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)', marginBottom: 2 }}>{label}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>{desc}</div>
+                        </div>
+                        <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, flexShrink: 0, cursor: privacySaving ? 'wait' : 'pointer' }}>
+                          <input type="checkbox"
+                            checked={key === 'doNotSell' ? !!(ps?.doNotSell) : !!(ps?.[key])}
+                            onChange={e => handlePrivacyToggle(key, e.target.checked)}
+                            style={{ opacity: 0, width: 0, height: 0 }} />
+                          <span style={{
+                            position: 'absolute', cursor: 'pointer', inset: 0, borderRadius: 24,
+                            background: (key === 'doNotSell' ? ps?.doNotSell : ps?.[key]) ? 'var(--primary)' : 'var(--border)',
+                            transition: 'background 0.2s'
+                          }}>
+                            <span style={{
+                              position: 'absolute', top: 2, left: (key === 'doNotSell' ? ps?.doNotSell : ps?.[key]) ? 22 : 2,
+                              width: 20, height: 20, borderRadius: '50%', background: 'white', transition: 'left 0.2s'
+                            }} />
+                          </span>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Consent history */}
+                  {ps && (
+                    <div style={{ marginBottom: 24, padding: '12px 16px', background: 'var(--surface2)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.8 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--text)', fontSize: 'var(--font-sm)' }}>📋 Consent Record</div>
+                      {ps.termsAcceptedAt && <div>✅ Terms of Service accepted: {new Date(ps.termsAcceptedAt).toLocaleString()}</div>}
+                      {ps.privacyAcceptedAt && <div>✅ Privacy Policy accepted: {new Date(ps.privacyAcceptedAt).toLocaleString()}</div>}
+                      {ps.lastUpdated && <div>🕐 Preferences last updated: {new Date(ps.lastUpdated).toLocaleString()}</div>}
+                    </div>
+                  )}
+
+                  {/* Data export */}
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-muted)', marginBottom: 10 }}>Data Portability (GDPR Art. 20 · CPRA)</div>
+                    <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 12 }}>Download a copy of all personal data we hold about you in JSON format.</p>
+                    <button className="btn btn-ghost" onClick={handleExport} disabled={exportLoading}>
+                      {exportLoading ? '⏳ Preparing your data…' : exportDone ? '✅ Downloaded!' : '📥 Export My Data'}
+                    </button>
+                  </div>
+
+                  {/* Account deletion */}
+                  <div style={{ padding: '16px', background: 'rgba(239,68,68,0.06)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--danger)', marginBottom: 8 }}>⚠️ Delete My Account (GDPR Art. 17 — Right to Erasure)</div>
+                    <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.6 }}>
+                      This permanently deletes your account, profile, and personal data. Messages are anonymised (not deleted) to preserve group conversation context. This action <strong>cannot be undone</strong>.
+                    </p>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <input className="input" type="password" placeholder="Confirm with your password" value={deleteConfirmPw}
+                        onChange={e => setDeleteConfirmPw(e.target.value)} style={{ maxWidth: 260 }} />
+                      <button className="btn" style={{ background: 'var(--danger)', color: '#fff', borderColor: 'var(--danger)' }}
+                        onClick={handleDelete} disabled={deleting}>
+                        {deleting ? 'Deleting…' : '🗑 Delete My Account'}
+                      </button>
+                    </div>
+                    {deleteError && <div style={{ color: 'var(--danger)', fontSize: 'var(--font-sm)', marginTop: 8 }}>{deleteError}</div>}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>

@@ -57,6 +57,8 @@ export default function AuthModal({ mode: initialMode, onClose }) {
   // Steps: 1 = account details, 2 = location, 3 = role intent (register only)
   const [step, setStep] = useState(1);
   const [joinAs, setJoinAs] = useState('USER');
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [form, setForm] = useState({
     name:'', email:'', password:'', age:'',
     city:'', country:'', building:'', neighborhood:'',
@@ -255,6 +257,25 @@ export default function AuthModal({ mode: initialMode, onClose }) {
                     : '🛍️ After creating your account you\'ll set up your seller profile and create discount coupons for group members.'}
                 </div>
               )}
+
+              {/* ── GDPR / CPRA consent checkboxes ── */}
+              <div style={{borderTop:'1px solid var(--border)',paddingTop:16,display:'grid',gap:10}}>
+                <label style={{display:'flex',gap:10,alignItems:'flex-start',cursor:'pointer',fontSize:'var(--font-sm)'}}>
+                  <input type="checkbox" required checked={termsAccepted} onChange={e=>setTermsAccepted(e.target.checked)} style={{width:16,height:16,marginTop:2,flexShrink:0,accentColor:'var(--primary)'}} />
+                  <span style={{color:'var(--text-muted)',lineHeight:1.5}}>
+                    I agree to the <a href="/privacy" target="_blank" rel="noreferrer" style={{color:'var(--primary)'}}>Terms of Service</a> and confirm I am 13 years old or older (or registering my child with parental consent). <span style={{color:'var(--danger)'}}>*</span>
+                  </span>
+                </label>
+                <label style={{display:'flex',gap:10,alignItems:'flex-start',cursor:'pointer',fontSize:'var(--font-sm)'}}>
+                  <input type="checkbox" required checked={privacyAccepted} onChange={e=>setPrivacyAccepted(e.target.checked)} style={{width:16,height:16,marginTop:2,flexShrink:0,accentColor:'var(--primary)'}} />
+                  <span style={{color:'var(--text-muted)',lineHeight:1.5}}>
+                    I have read and accept the <a href="/privacy" target="_blank" rel="noreferrer" style={{color:'var(--primary)'}}>Privacy Policy</a>. I understand my data is processed to provide the HobbyOrigin service (GDPR Art. 6(1)(b)). <span style={{color:'var(--danger)'}}>*</span>
+                  </span>
+                </label>
+                <p style={{fontSize:11,color:'var(--text-muted)',margin:0,lineHeight:1.5}}>
+                  🇪🇺 GDPR · 🇺🇸 CPRA compliant. You can export or delete your data at any time from your Profile. We never sell your personal data.
+                </p>
+              </div>
             </div>
           )}
 
@@ -279,7 +300,7 @@ export default function AuthModal({ mode: initialMode, onClose }) {
             {mode==='register' && step>1 && (
               <button type="button" className="btn btn-ghost" style={{flex:1}} onClick={()=>setStep(s=>s-1)}>← Back</button>
             )}
-            <button type="submit" className="btn btn-primary" style={{flex:2}} disabled={loading}>
+            <button type="submit" className="btn btn-primary" style={{flex:2}} disabled={loading || (mode==='register' && step===3 && (!termsAccepted || !privacyAccepted))}>
               {loading ? '⏳ Please wait…'
                 : mode==='register'
                   ? step < TOTAL_STEPS ? 'Next →'

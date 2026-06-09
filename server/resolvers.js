@@ -20,6 +20,7 @@ import {
   createLearningContent, getLearningContent, getLearningContentList, deleteLearningContent as dbDeleteLearningContent, incrementViewCount,
   createWebinar as dbCreateWebinar, getWebinar, getGroupWebinars, joinWebinar as dbJoinWebinar, leaveWebinar as dbLeaveWebinar,
   getWebinarAttendees, getWebinarAttendeeCount, isWebinarAttendee, updateWebinarStatus, addWebinarReward,
+  getPrivacyConsent, upsertPrivacyConsent, createDataRequest, deleteUserData, exportUserData, auditLog,
 } from './database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hobbyorigin_secret_2024';
@@ -27,6 +28,23 @@ const AVATAR_COLORS = ['#6366f1','#8b5cf6','#ec4899','#f97316','#14b8a6','#06b6d
 
 function requireAuth(user) {
   if (!user) throw new GraphQLError('Not authenticated', { extensions: { code: 'UNAUTHENTICATED' } });
+}
+
+function fmtPrivacy(row, userId) {
+  if (!row) return null;
+  let cp = { necessary: true, analytics: false, marketing: false };
+  try { cp = { ...cp, ...JSON.parse(row.cookie_preferences || '{}') }; } catch {}
+  return {
+    userId: userId || row.user_id,
+    termsAcceptedAt: row.terms_accepted_at || null,
+    privacyAcceptedAt: row.privacy_accepted_at || null,
+    marketingConsent: !!row.marketing_consent,
+    analyticsConsent: !!row.analytics_consent,
+    doNotSell: !!row.do_not_sell,
+    dataProcessingConsent: row.data_processing_consent !== false,
+    cookiePreferences: cp,
+    lastUpdated: row.last_updated,
+  };
 }
 function ageToGroup(age) {
   if (!age) return 'ADULTS';
@@ -238,6 +256,13 @@ export const resolvers = {
   Query: {
     me: async (_, __, { user }) => user ? resolveUser(user) : null,
 
+    myPrivacySettings: async (_, __, { user }) => {
+      requireAuth(user);
+      const result = await getPrivacyConsent(user.id);
+      if (!result) return null;
+      return fmtPrivacy(result, user.id);
+    },
+
     groups: async (_, args, { user }) => {
       const groups = await getGroups(args);
       return Promise.all(groups.map(g => resolveGroup(g, user?.id)));
@@ -374,6 +399,10 @@ export const resolvers = {
       const id = uuid();
       await createUser({ id, name, email, password: hashed, avatarColor: color, age: age || null, ageGroup, theme, currency: currency||'GBP', locale: locale||'en-GB', lat: lat||null, lng: lng||null, createdAt: new Date().toISOString() });
       if (city || building || country || lat || lng) await updateUser(id, { city: city||'', country: country||'', building: building||'', neighborhood: neighborhood||'', lat: lat||null, lng: lng||null });
+      // Record GDPR/CPRA consent at registration time
+      const now = new Date().toISOString();
+      await upsertPrivacyConsent(id, { termsAcceptedAt: now, privacyAcceptedAt: now, dataProcessingConsent: true });
+      await auditLog(id, 'ACCOUNT_CREATED');
       const token = jwt.sign({ userId: id }, JWT_SECRET, { expiresIn: '30d' });
       return { token, user: await resolveUser(await getUser(id)) };
     },
@@ -719,6 +748,55 @@ export const resolvers = {
       await createNotification({ id: notifId, userId: w.hostId, type: 'TIP_RECEIVED', title: `⭐ ${user.name} rewarded you ${amount} coin${amount>1?'s':''}!`, message: message || `For hosting "${w.title}"`, actorId: user.id, groupId: w.groupId });
       if (pubsub) pubsub.publish(`NOTIFICATION_${w.hostId}`, { notificationReceived: { id: notifId, type: 'TIP_RECEIVED', title: `⭐ Reward received!`, message: `${user.name} gave you ${amount} coins`, isRead: false, createdAt: new Date().toISOString() } });
       return resolveWebinar(await getWebinar(webinarId), user.id);
+    },
+
+    // ── PRIVACY / COMPLIANCE ─────────────────────────────────────────────────
+
+    recordConsent: async (_, { termsAccepted, privacyAccepted }, { user }) => {
+      requireAuth(user);
+      const now = new Date().toISOString();
+      const patch = {};
+      if (termsAccepted)   patch.termsAcceptedAt   = now;
+      if (privacyAccepted) patch.privacyAcceptedAt  = now;
+      patch.dataProcessingConsent = true;
+      const result = await upsertPrivacyConsent(user.id, patch);
+      return fmtPrivacy(result, user.id);
+    },
+
+    updatePrivacySettings: async (_, args, { user }) => {
+      requireAuth(user);
+      const patch = {};
+      if (args.marketingConsent     !== undefined) patch.marketingConsent     = args.marketingConsent;
+      if (args.analyticsConsent     !== undefined) patch.analyticsConsent     = args.analyticsConsent;
+      if (args.doNotSell            !== undefined) patch.doNotSell            = args.doNotSell;
+      if (args.dataProcessingConsent !== undefined) patch.dataProcessingConsent = args.dataProcessingConsent;
+      if (args.cookiePreferences)   patch.cookiePreferences = JSON.parse(args.cookiePreferences);
+      const result = await upsertPrivacyConsent(user.id, patch);
+      await auditLog(user.id, 'PRIVACY_SETTINGS_UPDATED');
+      return fmtPrivacy(result, user.id);
+    },
+
+    requestDataExport: async (_, __, { user }) => {
+      requireAuth(user);
+      // GDPR Art. 20 — Data Portability: return JSON payload immediately
+      const data = await exportUserData(user.id);
+      await createDataRequest(user.id, 'EXPORT');
+      await auditLog(user.id, 'DATA_EXPORT_REQUESTED');
+      return JSON.stringify(data);
+    },
+
+    deleteMyAccount: async (_, { password }, { user }) => {
+      requireAuth(user);
+      // Verify password before erasure (GDPR Art. 17 — Right to Erasure)
+      const { getUserByEmail } = await import('./database.js');
+      const raw = await getUserByEmail(user.email);
+      if (!raw || !(await bcrypt.compare(password, raw.password))) {
+        throw new GraphQLError('Incorrect password — please confirm with your current password to delete your account');
+      }
+      await createDataRequest(user.id, 'DELETION');
+      await auditLog(user.id, 'ACCOUNT_DELETED');
+      await deleteUserData(user.id);
+      return true;
     },
 
     updateProfile: async (_, args, { user }) => {

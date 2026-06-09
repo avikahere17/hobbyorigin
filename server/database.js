@@ -274,6 +274,38 @@ export async function initDB() {
       PRIMARY KEY (webinar_id, user_id)
     );
   `);
+
+  // ── Privacy / compliance tables (GDPR Art. 7, CPRA) ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS privacy_consents (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      terms_accepted_at TEXT,
+      privacy_accepted_at TEXT,
+      marketing_consent BOOLEAN DEFAULT FALSE,
+      analytics_consent BOOLEAN DEFAULT FALSE,
+      do_not_sell BOOLEAN DEFAULT FALSE,
+      data_processing_consent BOOLEAN DEFAULT TRUE,
+      cookie_preferences TEXT DEFAULT '{"necessary":true,"analytics":false,"marketing":false}',
+      last_updated TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS data_requests (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      request_type TEXT NOT NULL,
+      status TEXT DEFAULT 'PENDING',
+      requested_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      action TEXT NOT NULL,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+
   // ── Migrations: safely add columns that may be missing from older DB instances ──
   const migrations = [
     // messages: video support added after initial launch
@@ -895,5 +927,97 @@ const fmt = {
     createdAt: b.created_at,
   }),
 };
+
+// ── PRIVACY / COMPLIANCE (GDPR / CPRA) ───────────────────────────────────────
+
+export async function getPrivacyConsent(userId) {
+  const { rows } = await query('SELECT * FROM privacy_consents WHERE user_id=$1', [userId]);
+  return rows[0] || null;
+}
+
+export async function upsertPrivacyConsent(userId, data) {
+  const now = new Date().toISOString();
+  const existing = await getPrivacyConsent(userId);
+  if (!existing) {
+    await query(
+      `INSERT INTO privacy_consents (user_id,terms_accepted_at,privacy_accepted_at,marketing_consent,analytics_consent,do_not_sell,data_processing_consent,cookie_preferences,last_updated)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [userId, data.termsAcceptedAt||now, data.privacyAcceptedAt||now,
+       data.marketingConsent??false, data.analyticsConsent??false,
+       data.doNotSell??false, data.dataProcessingConsent??true,
+       JSON.stringify(data.cookiePreferences||{necessary:true,analytics:false,marketing:false}), now]
+    );
+  } else {
+    const fields = [];
+    const vals = [];
+    let i = 1;
+    if (data.marketingConsent !== undefined)    { fields.push(`marketing_consent=$${i++}`);    vals.push(data.marketingConsent); }
+    if (data.analyticsConsent !== undefined)    { fields.push(`analytics_consent=$${i++}`);    vals.push(data.analyticsConsent); }
+    if (data.doNotSell !== undefined)           { fields.push(`do_not_sell=$${i++}`);           vals.push(data.doNotSell); }
+    if (data.dataProcessingConsent !== undefined){ fields.push(`data_processing_consent=$${i++}`); vals.push(data.dataProcessingConsent); }
+    if (data.cookiePreferences !== undefined)   { fields.push(`cookie_preferences=$${i++}`);   vals.push(JSON.stringify(data.cookiePreferences)); }
+    if (fields.length) {
+      fields.push(`last_updated=$${i++}`); vals.push(now); vals.push(userId);
+      await query(`UPDATE privacy_consents SET ${fields.join(',')} WHERE user_id=$${i}`, vals);
+    }
+  }
+  return getPrivacyConsent(userId);
+}
+
+export async function createDataRequest(userId, requestType) {
+  const { v4: uuidv4 } = await import('uuid');
+  const id = uuidv4();
+  const now = new Date().toISOString();
+  await query('INSERT INTO data_requests (id,user_id,request_type,status,requested_at) VALUES ($1,$2,$3,$4,$5)', [id, userId, requestType, 'PENDING', now]);
+  return id;
+}
+
+export async function deleteUserData(userId) {
+  // GDPR Art. 17 — Right to Erasure
+  // Anonymise messages and tips (keep group integrity), hard-delete personal data
+  const anon = '[deleted]';
+  await query(`UPDATE messages SET content=$1, video_url='' WHERE sender_id=$2`, [anon, userId]);
+  await query(`UPDATE tips SET message=$1 WHERE from_id=$2 OR to_id=$2`, [anon, userId]);
+  // Remove memberships, bookings, reviews, notifications
+  await query('DELETE FROM group_members WHERE user_id=$1', [userId]);
+  await query('DELETE FROM notifications WHERE user_id=$1 OR actor_id=$1', [userId]);
+  await query('DELETE FROM buddy_requests WHERE from_id=$1 OR to_id=$1', [userId]);
+  await query('DELETE FROM event_registrations WHERE user_id=$1', [userId]);
+  await query('DELETE FROM webinar_attendees WHERE user_id=$1', [userId]);
+  await query('DELETE FROM expert_bookings WHERE user_id=$1', [userId]);
+  await query('DELETE FROM privacy_consents WHERE user_id=$1', [userId]);
+  await query('DELETE FROM parent_child WHERE parent_id=$1 OR child_id=$1', [userId]);
+  await query('DELETE FROM wallet WHERE user_id=$1', [userId]);
+  // Hard-delete the user record
+  await query('DELETE FROM users WHERE id=$1', [userId]);
+}
+
+export async function exportUserData(userId) {
+  const [user, memberships, messages, bookings, tips, notifications] = await Promise.all([
+    query('SELECT id,name,email,bio,interests,age,age_group,city,country,currency,locale,created_at FROM users WHERE id=$1', [userId]),
+    query('SELECT g.name, gm.joined_at FROM group_members gm JOIN groups g ON g.id=gm.group_id WHERE gm.user_id=$1', [userId]),
+    query('SELECT content,message_type,created_at FROM messages WHERE sender_id=$1 ORDER BY created_at DESC LIMIT 500', [userId]),
+    query('SELECT skill,status,scheduled_at,amount,currency FROM expert_bookings WHERE user_id=$1', [userId]),
+    query('SELECT amount,message,created_at FROM tips WHERE from_id=$1 OR to_id=$1', [userId]),
+    query('SELECT type,title,message,created_at FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 200', [userId]),
+  ]);
+  return {
+    exportedAt: new Date().toISOString(),
+    profile: user.rows[0] || {},
+    groupMemberships: memberships.rows,
+    messages: messages.rows,
+    expertBookings: bookings.rows,
+    tips: tips.rows,
+    notifications: notifications.rows,
+  };
+}
+
+export async function auditLog(userId, action, ip, userAgent) {
+  const { v4: uuidv4 } = await import('uuid');
+  await query(
+    'INSERT INTO audit_log (id,user_id,action,ip_address,user_agent,created_at) VALUES ($1,$2,$3,$4,$5,$6)',
+    [uuidv4(), userId||null, action, ip||null, userAgent||null, new Date().toISOString()]
+  ).catch(() => {}); // never let audit failures break the request
+}
 
 export default pool;
