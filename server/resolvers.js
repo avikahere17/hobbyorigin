@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { GraphQLError } from 'graphql';
 import {
-  getUser, getUserByEmail, createUser, updateUser, findFolks,
+  getUser, getUserByEmail, createUser, updateUser, findFolks, setUserRole, getAdminStats, getAdminUsers,
   getGroup, getGroups, createGroup, getGroupMembers, getMemberCount, isMember, joinGroup, leaveGroup, getUserGroups,
   getGroupMessages, createMessage,
   createNotification, getUserNotifications, markNotificationsRead, getUnreadCount, getBuddyStatus, sendBuddyRequest,
@@ -15,6 +15,8 @@ import {
   registerExpert, getExpert, getExpertByUser, updateExpert, searchExperts as dbSearchExperts,
   createBooking, getBooking, getUserBookings, getExpertBookings, updateBookingStatus,
   createReview, getExpertReviews,
+  createCoupon, getCoupon, getCouponByCode, getSellerCoupons, deleteCoupon,
+  seedGroups as dbSeedGroups,
 } from './database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hobbyorigin_secret_2024';
@@ -51,35 +53,50 @@ function nextSession(g) {
 
 async function resolveUser(u) {
   if (!u) return null;
-  const [groups, unread, tips, wallet, children] = await Promise.all([
-    getUserGroups(u.id),
-    getUnreadCount(u.id),
-    getTipsTotal(u.id),
-    getWallet(u.id),
-    getChildren(u.id),
-  ]);
-  return {
-    ...u,
-    location: { building: u.building||'', neighborhood: u.neighborhood||'', city: u.city||'', country: u.country||'' },
-    joinedGroups: groups,
-    unreadCount: unread,
-    tipsEarned: tips,
-    walletCoins: wallet.coins,
-    children: await Promise.all(children.map(c => resolveUser(c))),
-  };
+  try {
+    const [groups, unread, tips, wallet, children] = await Promise.all([
+      getUserGroups(u.id).catch(() => []),
+      getUnreadCount(u.id).catch(() => 0),
+      getTipsTotal(u.id).catch(() => 0),
+      getWallet(u.id).catch(() => ({ coins: 0 })),
+      getChildren(u.id).catch(() => []),
+    ]);
+    return {
+      ...u,
+      role: u.role || 'USER',
+      location: { building: u.building||'', neighborhood: u.neighborhood||'', city: u.city||'', country: u.country||'', lat: u.lat||null, lng: u.lng||null },
+      joinedGroups: groups,
+      unreadCount: unread,
+      tipsEarned: tips,
+      walletCoins: wallet.coins,
+      children: await Promise.all(children.map(c => resolveUser(c))),
+    };
+  } catch (e) {
+    // Return minimal user to prevent null on profile page
+    return {
+      ...u,
+      role: u.role || 'USER',
+      location: { building: u.building||'', neighborhood: u.neighborhood||'', city: u.city||'', country: u.country||'', lat: null, lng: null },
+      joinedGroups: [],
+      unreadCount: 0,
+      tipsEarned: 0,
+      walletCoins: 0,
+      children: [],
+    };
+  }
 }
 
 async function resolveGroup(g, userId) {
   if (!g) return null;
   const [members, count, memberCheck, messages, events, products, campaigns, creator] = await Promise.all([
-    getGroupMembers(g.id),
-    getMemberCount(g.id),
-    userId ? isMember(g.id, userId) : Promise.resolve(false),
-    getGroupMessages(g.id),
-    getGroupEvents(g.id),
-    getGroupProducts(g.id),
-    getGroupCampaigns(g.id),
-    getUser(g.creatorId),
+    getGroupMembers(g.id).catch(() => []),
+    getMemberCount(g.id).catch(() => 0),
+    userId ? isMember(g.id, userId).catch(() => false) : Promise.resolve(false),
+    getGroupMessages(g.id).catch(() => []),
+    getGroupEvents(g.id).catch(() => []),
+    getGroupProducts(g.id).catch(() => []),
+    getGroupCampaigns(g.id).catch(() => []),
+    getUser(g.creatorId).catch(() => null),
   ]);
   return {
     ...g,
@@ -87,9 +104,10 @@ async function resolveGroup(g, userId) {
     members: await Promise.all(members.map(m => resolveUser(m))),
     isOpen: count < g.maxMembers,
     isMember: memberCheck,
-    creator: await resolveUser(creator),
+    isSeeded: !!g.isSeeded,
+    creator: creator ? await resolveUser(creator) : { id: g.creatorId, name: 'HobbyOrigin', avatarColor: '#6366f1', ageGroup: 'ADULTS', role: 'ADMIN', bio: '', interests: [], theme: 'STANDARD', language: 'en', currency: 'GBP', locale: 'en-GB', joinedGroups: [], unreadCount: 0, tipsEarned: 0, walletCoins: 0, children: [], createdAt: g.createdAt, location: { building:'', neighborhood:'', city:'', country:'', lat:null, lng:null } },
     messages,
-    location: { building: g.building, neighborhood: g.neighborhood, city: g.city, country: g.country },
+    location: { building: g.building||'', neighborhood: g.neighborhood||'', city: g.city||'', country: g.country||'', lat: null, lng: null },
     schedule: g.scheduleDay ? {
       day: g.scheduleDay, time: g.scheduleTime,
       frequency: g.scheduleFrequency, duration: g.scheduleDuration,
@@ -270,10 +288,43 @@ export const resolvers = {
       const bookings = await getExpertBookings(expert.id);
       return Promise.all(bookings.map(b => resolveBooking(b)));
     },
+
+    myCoupons: async (_, __, { user }) => {
+      requireAuth(user);
+      const coupons = await getSellerCoupons(user.id);
+      return Promise.all(coupons.map(async c => ({
+        ...c,
+        seller: await resolveUser(await getUser(c.sellerId)),
+      })));
+    },
+
+    coupon: async (_, { code }) => {
+      const c = await getCouponByCode(code);
+      if (!c) return null;
+      return { ...c, seller: await resolveUser(await getUser(c.sellerId)) };
+    },
+
+    adminStats: async (_, __, { user }) => {
+      requireAuth(user);
+      if (user.role !== 'ADMIN') throw new GraphQLError('Admin access required');
+      const stats = await getAdminStats();
+      return {
+        ...stats,
+        recentUsers: await Promise.all(stats.recentUsers.map(u => resolveUser(u))),
+        recentGroups: await Promise.all(stats.recentGroups.map(g => resolveGroup(g, null))),
+      };
+    },
+
+    adminUsers: async (_, args, { user }) => {
+      requireAuth(user);
+      if (user.role !== 'ADMIN') throw new GraphQLError('Admin access required');
+      const users = await getAdminUsers(args);
+      return Promise.all(users.map(u => resolveUser(u)));
+    },
   },
 
   Mutation: {
-    register: async (_, { name, email, password, age, city, country, building, neighborhood, currency, locale }) => {
+    register: async (_, { name, email, password, age, city, country, building, neighborhood, currency, locale, lat, lng }) => {
       const existing = await getUserByEmail(email);
       if (existing) throw new GraphQLError('Email already in use');
       if (password.length < 6) throw new GraphQLError('Password must be at least 6 characters');
@@ -282,8 +333,8 @@ export const resolvers = {
       const theme = ageGroupToTheme(ageGroup);
       const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
       const id = uuid();
-      await createUser({ id, name, email, password: hashed, avatarColor: color, age: age || null, ageGroup, theme, currency: currency||'GBP', locale: locale||'en-GB', createdAt: new Date().toISOString() });
-      if (city || building || country) await updateUser(id, { city: city||'', country: country||'', building: building||'', neighborhood: neighborhood||'' });
+      await createUser({ id, name, email, password: hashed, avatarColor: color, age: age || null, ageGroup, theme, currency: currency||'GBP', locale: locale||'en-GB', lat: lat||null, lng: lng||null, createdAt: new Date().toISOString() });
+      if (city || building || country || lat || lng) await updateUser(id, { city: city||'', country: country||'', building: building||'', neighborhood: neighborhood||'', lat: lat||null, lng: lng||null });
       const token = jwt.sign({ userId: id }, JWT_SECRET, { expiresIn: '30d' });
       return { token, user: await resolveUser(await getUser(id)) };
     },
@@ -293,17 +344,6 @@ export const resolvers = {
       if (!row || !await bcrypt.compare(password, row.password)) throw new GraphQLError('Invalid credentials');
       const token = jwt.sign({ userId: row.id }, JWT_SECRET, { expiresIn: '30d' });
       return { token, user: await resolveUser(await getUser(row.id)) };
-    },
-
-    updateProfile: async (_, args, { user }) => {
-      requireAuth(user);
-      const dbFields = { bio: args.bio, interests: args.interests, age: args.age, building: args.building, neighborhood: args.neighborhood, city: args.city, country: args.country, language: args.language };
-      if (args.theme) dbFields.theme = args.theme;
-      if (args.currency) dbFields.currency = args.currency;
-      if (args.locale) dbFields.locale = args.locale;
-      if (args.age) dbFields.age_group = ageToGroup(args.age);
-      await updateUser(user.id, dbFields);
-      return resolveUser(await getUser(user.id));
     },
 
     createGroup: async (_, args, { user }) => {
@@ -342,13 +382,13 @@ export const resolvers = {
       return r;
     },
 
-    sendMessage: async (_, { groupId, content }, { user, pubsub }) => {
+    sendMessage: async (_, { groupId, content, messageType, videoUrl }, { user, pubsub }) => {
       requireAuth(user);
-      if (!content.trim()) throw new GraphQLError('Message cannot be empty');
+      if (!content.trim() && !videoUrl) throw new GraphQLError('Message cannot be empty');
       const memberCheck = await isMember(groupId, user.id);
       if (!memberCheck) throw new GraphQLError('Join the group first');
       const id = uuid();
-      const msg = await createMessage({ id, content: content.trim(), senderId: user.id, groupId, createdAt: new Date().toISOString() });
+      const msg = await createMessage({ id, content: content?.trim()||'', messageType: messageType||'TEXT', videoUrl: videoUrl||'', senderId: user.id, groupId, createdAt: new Date().toISOString() });
       const sender = await getUser(user.id);
       const resolved = { ...msg, sender };
       if (pubsub) pubsub.publish(`MESSAGE_SENT_${groupId}`, { messageSent: resolved });
@@ -522,6 +562,48 @@ export const resolvers = {
       if (!expert) throw new GraphQLError('Expert not found');
       const id = uuid();
       return resolveExpert(await createReview({ id, expertId, userId: user.id, bookingId, rating, comment }));
+    },
+
+    createCoupon: async (_, { code, description, discountPct, maxUses, groupId, expiresAt }, { user }) => {
+      requireAuth(user);
+      if (user.role !== 'SELLER' && user.role !== 'ADMIN') throw new GraphQLError('Seller or Admin access required');
+      if (discountPct < 1 || discountPct > 100) throw new GraphQLError('Discount must be 1–100%');
+      const id = uuid();
+      const coupon = await createCoupon({ id, code, description, discountPct, maxUses: maxUses||100, groupId, sellerId: user.id, expiresAt });
+      return { ...coupon, seller: await resolveUser(await getUser(user.id)) };
+    },
+
+    deleteCoupon: async (_, { id }, { user }) => {
+      requireAuth(user);
+      const coupon = await getCoupon(id);
+      if (!coupon) throw new GraphQLError('Coupon not found');
+      if (coupon.sellerId !== user.id && user.role !== 'ADMIN') throw new GraphQLError('Not authorised');
+      await deleteCoupon(id);
+      return true;
+    },
+
+    setUserRole: async (_, { userId, role }, { user }) => {
+      requireAuth(user);
+      if (user.role !== 'ADMIN') throw new GraphQLError('Admin access required');
+      const updated = await setUserRole(userId, role);
+      return resolveUser(updated);
+    },
+
+    seedGroups: async (_, __, { user }) => {
+      requireAuth(user);
+      if (user.role !== 'ADMIN') throw new GraphQLError('Admin access required');
+      return dbSeedGroups(user.id);
+    },
+
+    updateProfile: async (_, args, { user }) => {
+      requireAuth(user);
+      const dbFields = { bio: args.bio, interests: args.interests, age: args.age, building: args.building, neighborhood: args.neighborhood, city: args.city, country: args.country, language: args.language, lat: args.lat, lng: args.lng };
+      if (args.theme) dbFields.theme = args.theme;
+      if (args.currency) dbFields.currency = args.currency;
+      if (args.locale) dbFields.locale = args.locale;
+      if (args.age) dbFields.age_group = ageToGroup(args.age);
+      await updateUser(user.id, dbFields);
+      return resolveUser(await getUser(user.id));
     },
   },
 

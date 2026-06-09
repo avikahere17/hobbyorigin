@@ -10,6 +10,9 @@ import GroupDetail from './pages/GroupDetail';
 import Profile from './pages/Profile';
 import FindFolks from './pages/FindFolks';
 import Notifications from './pages/Notifications';
+import AdminDashboard from './pages/AdminDashboard';
+import ExpertDashboard from './pages/ExpertDashboard';
+import SellerDashboard from './pages/SellerDashboard';
 import './App.css';
 
 function AppContent() {
@@ -26,6 +29,9 @@ function AppContent() {
         <Route path="/profile/:id" element={<Profile />} />
         <Route path="/find-folks" element={<FindFolks onAuthRequired={openAuth} />} />
         <Route path="/notifications" element={<Notifications />} />
+        <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/expert" element={<ExpertDashboard />} />
+        <Route path="/seller" element={<SellerDashboard />} />
       </Routes>
       {authModal && <AuthModal mode={authModal} onClose={closeAuth} />}
     </BrowserRouter>

@@ -1,7 +1,7 @@
 import { gql } from '@apollo/client';
 
-const USER_FIELDS = `id name email bio interests avatarColor age ageGroup theme language currency locale unreadCount tipsEarned walletCoins createdAt
-  location { building neighborhood city country }
+const USER_FIELDS = `id name email bio interests avatarColor age ageGroup theme role language currency locale unreadCount tipsEarned walletCoins createdAt
+  location { building neighborhood city country lat lng }
   children { id name age ageGroup avatarColor walletCoins }`;
 
 const GROUP_FIELDS = `id name description category tags maxMembers memberCount isOpen isMember createdAt
@@ -29,7 +29,7 @@ export const GROUPS_QUERY = gql`query Groups($category:String,$search:String,$ci
 export const GROUP_QUERY = gql`query Group($id:ID!) {
   group(id:$id) {
     ${GROUP_FIELDS}
-    messages { id content createdAt groupId sender { id name avatarColor ageGroup } }
+    messages { id content messageType videoUrl createdAt groupId sender { id name avatarColor ageGroup } }
     events { ${EVENT_FIELDS} }
     products { ${PRODUCT_FIELDS} }
     campaigns { ${CAMPAIGN_FIELDS} }
@@ -89,12 +89,12 @@ export const LEAVE_GROUP_MUTATION = gql`mutation LeaveGroup($groupId:ID!) {
   leaveGroup(groupId:$groupId) { id memberCount isOpen isMember members { id name avatarColor } }
 }`;
 
-export const SEND_MESSAGE_MUTATION = gql`mutation SendMessage($groupId:ID!,$content:String!) {
-  sendMessage(groupId:$groupId,content:$content) { id content createdAt groupId sender { id name avatarColor } }
+export const SEND_MESSAGE_MUTATION = gql`mutation SendMessage($groupId:ID!,$content:String!,$messageType:MessageType,$videoUrl:String) {
+  sendMessage(groupId:$groupId,content:$content,messageType:$messageType,videoUrl:$videoUrl) { id content messageType videoUrl createdAt groupId sender { id name avatarColor } }
 }`;
 
-export const UPDATE_PROFILE_MUTATION = gql`mutation UpdateProfile($bio:String,$interests:[String!],$age:Int,$building:String,$neighborhood:String,$city:String,$country:String,$language:String,$theme:Theme,$currency:String,$locale:String) {
-  updateProfile(bio:$bio,interests:$interests,age:$age,building:$building,neighborhood:$neighborhood,city:$city,country:$country,language:$language,theme:$theme,currency:$currency,locale:$locale) {
+export const UPDATE_PROFILE_MUTATION = gql`mutation UpdateProfile($bio:String,$interests:[String!],$age:Int,$building:String,$neighborhood:String,$city:String,$country:String,$language:String,$theme:Theme,$currency:String,$locale:String,$lat:Float,$lng:Float) {
+  updateProfile(bio:$bio,interests:$interests,age:$age,building:$building,neighborhood:$neighborhood,city:$city,country:$country,language:$language,theme:$theme,currency:$currency,locale:$locale,lat:$lat,lng:$lng) {
     ${USER_FIELDS}
   }
 }`;
@@ -135,7 +135,7 @@ export const LINK_CHILD_MUTATION = gql`mutation LinkChild($childEmail:String!) {
 }`;
 
 export const MESSAGE_SUBSCRIPTION = gql`subscription MessageSent($groupId:ID!) {
-  messageSent(groupId:$groupId) { id content createdAt groupId sender { id name avatarColor } }
+  messageSent(groupId:$groupId) { id content messageType videoUrl createdAt groupId sender { id name avatarColor } }
 }`;
 
 export const GROUP_MEMBER_SUBSCRIPTION = gql`subscription GroupMemberChanged($groupId:ID!) {
@@ -196,3 +196,35 @@ export const COMPLETE_BOOKING_MUTATION = gql`mutation CompleteBooking($bookingId
 export const REVIEW_EXPERT_MUTATION = gql`mutation ReviewExpert($expertId:ID!,$bookingId:ID!,$rating:Int!,$comment:String) {
   reviewExpert(expertId:$expertId,bookingId:$bookingId,rating:$rating,comment:$comment) { id ratingAvg ratingCount reviews { id rating comment createdAt reviewer { id name } } }
 }`;
+
+/* ═══════════════════════════════════════ ADMIN / SELLER ══════════════════════ */
+
+export const ADMIN_STATS_QUERY = gql`query AdminStats {
+  adminStats {
+    totalUsers totalGroups totalMessages totalExperts totalBookings totalCoupons
+    recentUsers { id name email role createdAt avatarColor ageGroup location { city country } }
+    recentGroups { id name category memberCount maxMembers createdAt }
+  }
+}`;
+
+export const ADMIN_USERS_QUERY = gql`query AdminUsers($search:String,$role:UserRole) {
+  adminUsers(search:$search,role:$role) { id name email role ageGroup createdAt avatarColor location { city country } }
+}`;
+
+export const SET_USER_ROLE_MUTATION = gql`mutation SetUserRole($userId:ID!,$role:UserRole!) {
+  setUserRole(userId:$userId,role:$role) { id name email role }
+}`;
+
+export const SEED_GROUPS_MUTATION = gql`mutation SeedGroups { seedGroups }`;
+
+const COUPON_FIELDS = `id code description discountPct maxUses usedCount groupId expiresAt isActive createdAt seller { id name avatarColor }`;
+
+export const MY_COUPONS_QUERY = gql`query MyCoupons { myCoupons { ${COUPON_FIELDS} } }`;
+
+export const COUPON_QUERY = gql`query Coupon($code:String!) { coupon(code:$code) { ${COUPON_FIELDS} } }`;
+
+export const CREATE_COUPON_MUTATION = gql`mutation CreateCoupon($code:String!,$description:String!,$discountPct:Int!,$maxUses:Int!,$groupId:ID,$expiresAt:String) {
+  createCoupon(code:$code,description:$description,discountPct:$discountPct,maxUses:$maxUses,groupId:$groupId,expiresAt:$expiresAt) { ${COUPON_FIELDS} }
+}`;
+
+export const DELETE_COUPON_MUTATION = gql`mutation DeleteCoupon($id:ID!) { deleteCoupon(id:$id) }`;

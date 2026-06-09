@@ -33,10 +33,13 @@ export async function initDB() {
       age INTEGER DEFAULT NULL,
       age_group TEXT DEFAULT 'ADULTS',
       theme TEXT DEFAULT 'STANDARD',
+      role TEXT DEFAULT 'USER',
       building TEXT DEFAULT '',
       neighborhood TEXT DEFAULT '',
       city TEXT DEFAULT '',
       country TEXT DEFAULT '',
+      lat REAL DEFAULT NULL,
+      lng REAL DEFAULT NULL,
       language TEXT DEFAULT 'en',
       currency TEXT DEFAULT 'GBP',
       locale TEXT DEFAULT 'en-GB',
@@ -61,6 +64,21 @@ export async function initDB() {
       schedule_time TEXT DEFAULT '',
       schedule_frequency TEXT DEFAULT '',
       schedule_duration INTEGER DEFAULT 60,
+      is_seeded BOOLEAN DEFAULT FALSE,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS coupons (
+      id TEXT PRIMARY KEY,
+      code TEXT UNIQUE NOT NULL,
+      description TEXT DEFAULT '',
+      discount_pct INTEGER NOT NULL DEFAULT 10,
+      max_uses INTEGER NOT NULL DEFAULT 100,
+      used_count INTEGER DEFAULT 0,
+      group_id TEXT DEFAULT NULL,
+      seller_id TEXT NOT NULL REFERENCES users(id),
+      expires_at TEXT DEFAULT NULL,
+      is_active BOOLEAN DEFAULT TRUE,
       created_at TEXT NOT NULL
     );
 
@@ -74,6 +92,8 @@ export async function initDB() {
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       content TEXT NOT NULL,
+      message_type TEXT DEFAULT 'TEXT',
+      video_url TEXT DEFAULT '',
       sender_id TEXT NOT NULL REFERENCES users(id),
       group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL
@@ -231,15 +251,50 @@ export async function getUserByEmail(email) {
   return rows[0] || null;
 }
 export async function createUser(data) {
-  const { id, name, email, password, avatarColor, age, ageGroup, theme, currency, locale, createdAt } = data;
+  const { id, name, email, password, avatarColor, age, ageGroup, theme, currency, locale, lat, lng, createdAt } = data;
   await query(
-    'INSERT INTO users (id,name,email,password,avatar_color,age,age_group,theme,currency,locale,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
-    [id, name, email, password, avatarColor, age, ageGroup, theme, currency||'GBP', locale||'en-GB', createdAt]
+    'INSERT INTO users (id,name,email,password,avatar_color,age,age_group,theme,currency,locale,lat,lng,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
+    [id, name, email, password, avatarColor, age, ageGroup, theme, currency||'GBP', locale||'en-GB', lat||null, lng||null, createdAt]
   );
   return getUser(id);
 }
+export async function setUserRole(id, role) {
+  await query('UPDATE users SET role=$1 WHERE id=$2', [role, id]);
+  return getUser(id);
+}
+export async function getAdminStats() {
+  const [users, groups, messages, experts, bookings, coupons] = await Promise.all([
+    query('SELECT COUNT(*) as c FROM users'),
+    query('SELECT COUNT(*) as c FROM groups'),
+    query('SELECT COUNT(*) as c FROM messages'),
+    query('SELECT COUNT(*) as c FROM experts'),
+    query('SELECT COUNT(*) as c FROM expert_bookings'),
+    query('SELECT COUNT(*) as c FROM coupons'),
+  ]);
+  const { rows: recentUsers } = await query('SELECT * FROM users ORDER BY created_at DESC LIMIT 10');
+  const { rows: recentGroups } = await query('SELECT * FROM groups ORDER BY created_at DESC LIMIT 10');
+  return {
+    totalUsers: parseInt(users.rows[0].c),
+    totalGroups: parseInt(groups.rows[0].c),
+    totalMessages: parseInt(messages.rows[0].c),
+    totalExperts: parseInt(experts.rows[0].c),
+    totalBookings: parseInt(bookings.rows[0].c),
+    totalCoupons: parseInt(coupons.rows[0].c),
+    recentUsers: recentUsers.map(fmt.user),
+    recentGroups: recentGroups.map(fmt.group),
+  };
+}
+export async function getAdminUsers({ search, role } = {}) {
+  let q = 'SELECT * FROM users WHERE 1=1';
+  const p = []; let idx = 1;
+  if (search) { q += ` AND (name ILIKE $${idx} OR email ILIKE $${idx++})`; p.push(`%${search}%`); }
+  if (role) { q += ` AND role=$${idx++}`; p.push(role); }
+  q += ' ORDER BY created_at DESC LIMIT 100';
+  const { rows } = await query(q, p);
+  return rows.map(fmt.user);
+}
 export async function updateUser(id, fields) {
-  const allowed = ['bio','interests','age','age_group','theme','building','neighborhood','city','country','language','currency','locale','notification_prefs'];
+  const allowed = ['bio','interests','age','age_group','theme','role','building','neighborhood','city','country','lat','lng','language','currency','locale','notification_prefs'];
   const map = { interests: v => JSON.stringify(v), notification_prefs: v => JSON.stringify(v) };
   for (const [k, v] of Object.entries(fields)) {
     if (!allowed.includes(k) || v === undefined) continue;
@@ -324,8 +379,8 @@ export async function getGroupMessages(groupId, limit = 80) {
   const { rows } = await query('SELECT * FROM messages WHERE group_id=$1 ORDER BY created_at ASC LIMIT $2', [groupId, limit]);
   return rows.map(fmt.message);
 }
-export async function createMessage({ id, content, senderId, groupId, createdAt }) {
-  await query('INSERT INTO messages (id,content,sender_id,group_id,created_at) VALUES ($1,$2,$3,$4,$5)', [id, content, senderId, groupId, createdAt]);
+export async function createMessage({ id, content, messageType, videoUrl, senderId, groupId, createdAt }) {
+  await query('INSERT INTO messages (id,content,message_type,video_url,sender_id,group_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', [id, content, messageType||'TEXT', videoUrl||'', senderId, groupId, createdAt]);
   const { rows } = await query('SELECT * FROM messages WHERE id=$1', [id]);
   return fmt.message(rows[0]);
 }
@@ -513,6 +568,69 @@ export async function getExpertReviews(expertId) {
   return rows;
 }
 
+// ── COUPONS ───────────────────────────────────────────────────────────────────
+
+export async function createCoupon({ id, code, description, discountPct, maxUses, groupId, sellerId, expiresAt }) {
+  const now = new Date().toISOString();
+  await query(
+    'INSERT INTO coupons (id,code,description,discount_pct,max_uses,group_id,seller_id,expires_at,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+    [id, code.toUpperCase(), description||'', discountPct||10, maxUses||100, groupId||null, sellerId, expiresAt||null, now]
+  );
+  return getCoupon(id);
+}
+export async function getCoupon(id) {
+  const { rows } = await query('SELECT * FROM coupons WHERE id=$1', [id]);
+  return rows[0] ? fmt.coupon(rows[0]) : null;
+}
+export async function getCouponByCode(code) {
+  const { rows } = await query('SELECT * FROM coupons WHERE code=$1 AND is_active=TRUE', [code.toUpperCase()]);
+  return rows[0] ? fmt.coupon(rows[0]) : null;
+}
+export async function getSellerCoupons(sellerId) {
+  const { rows } = await query('SELECT * FROM coupons WHERE seller_id=$1 ORDER BY created_at DESC', [sellerId]);
+  return rows.map(fmt.coupon);
+}
+export async function deleteCoupon(id) {
+  await query('UPDATE coupons SET is_active=FALSE WHERE id=$1', [id]);
+}
+export async function useCoupon(code) {
+  await query('UPDATE coupons SET used_count=used_count+1 WHERE code=$1', [code.toUpperCase()]);
+}
+
+// ── SEED GROUPS ───────────────────────────────────────────────────────────────
+
+const SEED_GROUPS = [
+  { name:'🎸 Global Guitar Circle', description:'Acoustic and electric guitar players from all levels. Share tabs, tips, and jam sessions.', category:'Music', tags:['Guitar','Music','Acoustic','Electric'], ageGroups:['TEENS','ADULTS','SENIORS'] },
+  { name:'♟️ International Chess Club', description:'Weekly chess matches, strategy discussions, and puzzles. All ELO ratings welcome.', category:'Gaming', tags:['Chess','Strategy','Tournaments'], ageGroups:['KIDS','TEENS','ADULTS','SENIORS'] },
+  { name:'🎨 Watercolour Artists Network', description:'Share your watercolour works, get feedback, learn techniques from fellow artists worldwide.', category:'Art & Design', tags:['Watercolour','Painting','Art'], ageGroups:['KIDS','TEENS','ADULTS','SENIORS'] },
+  { name:'🌱 Community Gardeners', description:'Urban gardening, balcony plants, composting, and growing your own food. All climates welcome.', category:'Gardening', tags:['Gardening','Urban','Vegetables','Sustainability'], ageGroups:['ADULTS','SENIORS'] },
+  { name:'📚 Book Lovers Worldwide', description:'Monthly book picks, discussion threads, and reading challenges for fiction and non-fiction lovers.', category:'Reading', tags:['Books','Fiction','Non-fiction','Discussion'], ageGroups:['TEENS','ADULTS','SENIORS'] },
+  { name:'💻 Young Coders Club', description:'Kids and teens learning to code. Scratch, Python, web development — learn together and build cool things.', category:'Programming', tags:['Coding','Python','Scratch','Web'], ageGroups:['KIDS','TEENS'] },
+  { name:'🧘 Morning Yoga & Wellness', description:'Daily yoga, breathwork, and mindfulness sessions. Beginners to advanced, all bodies welcome.', category:'Sports', tags:['Yoga','Wellness','Mindfulness','Fitness'], ageGroups:['TEENS','ADULTS','SENIORS'] },
+  { name:'🍳 Home Chefs & Foodies', description:'Share recipes, cooking tips, food photography, and host virtual cook-alongs with cooks worldwide.', category:'Cooking', tags:['Cooking','Recipes','Food','Baking'], ageGroups:['TEENS','ADULTS','SENIORS'] },
+  { name:'📸 Photography Collective', description:'Share your shots, discuss gear, run photo challenges, and give constructive feedback on compositions.', category:'Photography', tags:['Photography','Camera','Editing','Portraits'], ageGroups:['TEENS','ADULTS','SENIORS'] },
+  { name:'✍️ Creative Writers Circle', description:'Fiction, poetry, screenplays — share your work, get feedback, and find writing accountability partners.', category:'Writing', tags:['Writing','Fiction','Poetry','Creative'], ageGroups:['TEENS','ADULTS','SENIORS'] },
+  { name:'🎭 Drama & Theatre Kids', description:'Script reading, improv games, and performance skills for young actors aged 8–16.', category:'Other', tags:['Drama','Theatre','Acting','Improv'], ageGroups:['KIDS','TEENS'] },
+  { name:'🏃 Running & Fitness Crew', description:'Training plans, race prep, and motivation for runners of all paces. Couch to 5K welcome!', category:'Sports', tags:['Running','Fitness','5K','Marathon'], ageGroups:['TEENS','ADULTS'] },
+  { name:'🎵 Seniors Music & Memory', description:'Music appreciation, singing, and gentle music-making for older adults. A warm, supportive community.', category:'Music', tags:['Music','Seniors','Singing','Memory'], ageGroups:['SENIORS'] },
+  { name:'🔬 Science Explorers (Kids)', description:'Fun science experiments, nature exploration, and curiosity-driven learning for 6–12 year olds.', category:'Science', tags:['Science','Experiments','Nature','Kids'], ageGroups:['KIDS'] },
+  { name:'💃 Dance Enthusiasts Global', description:'Ballet, contemporary, Bollywood, hip-hop — share videos, find virtual classes, and celebrate movement.', category:'Dance', tags:['Dance','Ballet','Bollywood','HipHop'], ageGroups:['KIDS','TEENS','ADULTS','SENIORS'] },
+];
+
+export async function seedGroups(systemUserId) {
+  const { rows: existing } = await query('SELECT COUNT(*) as c FROM groups WHERE is_seeded=TRUE');
+  if (parseInt(existing[0].c) > 0) return false; // already seeded
+  const now = new Date().toISOString();
+  for (const g of SEED_GROUPS) {
+    const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    await query(
+      'INSERT INTO groups (id,name,description,category,tags,max_members,creator_id,age_groups,building,neighborhood,city,country,is_seeded,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
+      [id, g.name, g.description, g.category, JSON.stringify(g.tags), 500, systemUserId, JSON.stringify(g.ageGroups), '', '', '', '', true, now]
+    );
+  }
+  return true;
+}
+
 // ── WALLET ────────────────────────────────────────────────────────────────────
 
 export async function getWallet(userId) {
@@ -546,6 +664,7 @@ const fmt = {
     interests: JSON.parse(u.interests || '[]'),
     avatarColor: u.avatar_color,
     ageGroup: u.age_group,
+    role: u.role || 'USER',
     currency: u.currency || 'GBP',
     locale: u.locale || 'en-GB',
     notificationPrefs: JSON.parse(u.notification_prefs || '{}'),
@@ -561,9 +680,21 @@ const fmt = {
     scheduleTime: g.schedule_time,
     scheduleFrequency: g.schedule_frequency,
     scheduleDuration: g.schedule_duration,
+    isSeeded: !!g.is_seeded,
     createdAt: g.created_at,
   }),
-  message: m => ({ ...m, senderId: m.sender_id, groupId: m.group_id, createdAt: m.created_at }),
+  message: m => ({ ...m, senderId: m.sender_id, groupId: m.group_id, messageType: m.message_type || 'TEXT', videoUrl: m.video_url || '', createdAt: m.created_at }),
+  coupon: c => ({
+    ...c,
+    discountPct: c.discount_pct,
+    maxUses: c.max_uses,
+    usedCount: c.used_count,
+    groupId: c.group_id,
+    sellerId: c.seller_id,
+    expiresAt: c.expires_at,
+    isActive: !!c.is_active,
+    createdAt: c.created_at,
+  }),
   notification: n => ({ ...n, userId: n.user_id, groupId: n.group_id, actorId: n.actor_id, isRead: !!n.is_read, scheduledFor: n.scheduled_for, createdAt: n.created_at }),
   event: e => ({ ...e, groupId: e.group_id, creatorId: e.creator_id, videoUrl: e.video_url, startsAt: e.starts_at, durationMins: e.duration_mins, ticketPrice: e.ticket_price, createdAt: e.created_at }),
   product: p => ({ ...p, groupId: p.group_id, creatorId: p.creator_id, productType: p.product_type, imageEmoji: p.image_emoji, createdAt: p.created_at }),

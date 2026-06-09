@@ -8,12 +8,16 @@ export const typeDefs = `#graphql
   enum SupportedLocale { en_GB en_US en_IN hi_IN }
   enum ServiceType { CHARITY PAID BOTH }
   enum BookingStatus { PENDING CONFIRMED CANCELLED COMPLETED }
+  enum UserRole { USER EXPERT SELLER ADMIN }
+  enum MessageType { TEXT VIDEO IMAGE LINK }
 
   type Location {
     building: String
     neighborhood: String
     city: String
     country: String
+    lat: Float
+    lng: Float
   }
 
   type Schedule {
@@ -40,6 +44,7 @@ export const typeDefs = `#graphql
     age: Int
     ageGroup: AgeGroup!
     theme: Theme!
+    role: UserRole!
     location: Location!
     language: String!
     currency: String!
@@ -71,12 +76,15 @@ export const typeDefs = `#graphql
     events: [Event!]!
     products: [Product!]!
     campaigns: [Campaign!]!
+    isSeeded: Boolean!
     createdAt: String!
   }
 
   type Message {
     id: ID!
     content: String!
+    messageType: MessageType!
+    videoUrl: String
     sender: User!
     groupId: ID!
     createdAt: String!
@@ -213,6 +221,31 @@ export const typeDefs = `#graphql
     coins: Int!
   }
 
+  type Coupon {
+    id: ID!
+    code: String!
+    description: String!
+    discountPct: Int!
+    maxUses: Int!
+    usedCount: Int!
+    groupId: ID
+    expiresAt: String
+    isActive: Boolean!
+    seller: User!
+    createdAt: String!
+  }
+
+  type AdminStats {
+    totalUsers: Int!
+    totalGroups: Int!
+    totalMessages: Int!
+    totalExperts: Int!
+    totalBookings: Int!
+    totalCoupons: Int!
+    recentUsers: [User!]!
+    recentGroups: [Group!]!
+  }
+
   type Query {
     me: User
     groups(category: String, search: String, city: String, building: String, ageGroup: AgeGroup): [Group!]!
@@ -229,16 +262,20 @@ export const typeDefs = `#graphql
     myExpertProfile: Expert
     myBookings: [ExpertBooking!]!
     expertBookings: [ExpertBooking!]!
+    myCoupons: [Coupon!]!
+    coupon(code: String!): Coupon
+    adminStats: AdminStats!
+    adminUsers(search: String, role: UserRole): [User!]!
   }
 
   type Mutation {
-    register(name: String!, email: String!, password: String!, age: Int, city: String, country: String, building: String, neighborhood: String, currency: String, locale: String): AuthPayload!
+    register(name: String!, email: String!, password: String!, age: Int, city: String, country: String, building: String, neighborhood: String, currency: String, locale: String, lat: Float, lng: Float): AuthPayload!
     login(email: String!, password: String!): AuthPayload!
-    updateProfile(bio: String, interests: [String!], age: Int, building: String, neighborhood: String, city: String, country: String, language: String, theme: Theme, currency: String, locale: String): User!
+    updateProfile(bio: String, interests: [String!], age: Int, building: String, neighborhood: String, city: String, country: String, language: String, theme: Theme, currency: String, locale: String, lat: Float, lng: Float): User!
     createGroup(name: String!, description: String!, category: String!, tags: [String!], maxMembers: Int!, ageGroups: [AgeGroup!], city: String, building: String, neighborhood: String, scheduleDay: String, scheduleTime: String, scheduleFrequency: String, scheduleDuration: Int): Group!
     joinGroup(groupId: ID!): Group!
     leaveGroup(groupId: ID!): Group!
-    sendMessage(groupId: ID!, content: String!): Message!
+    sendMessage(groupId: ID!, content: String!, messageType: MessageType, videoUrl: String): Message!
     sendBuddyRequest(toUserId: ID!): Boolean!
     markNotificationsRead: Boolean!
     sendTip(toUserId: ID!, groupId: ID, amount: Int!, message: String): Tip!
@@ -256,6 +293,10 @@ export const typeDefs = `#graphql
     cancelBooking(bookingId: ID!): ExpertBooking!
     completeBooking(bookingId: ID!): ExpertBooking!
     reviewExpert(expertId: ID!, bookingId: ID!, rating: Int!, comment: String): Expert!
+    createCoupon(code: String!, description: String!, discountPct: Int!, maxUses: Int!, groupId: ID, expiresAt: String): Coupon!
+    deleteCoupon(id: ID!): Boolean!
+    setUserRole(userId: ID!, role: UserRole!): User!
+    seedGroups: Boolean!
   }
 
   type Subscription {

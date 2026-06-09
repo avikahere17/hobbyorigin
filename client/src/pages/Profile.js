@@ -1,22 +1,29 @@
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation } from '@apollo/client';
+import { useTranslation } from 'react-i18next';
+import i18n from '../i18n';
 import { useAuth } from '../context/AuthContext';
 import { USER_QUERY, UPDATE_PROFILE_MUTATION, ME_QUERY, LINK_CHILD_MUTATION, ADD_COINS_MUTATION } from '../graphql';
+import { CURRENCY_OPTIONS, formatCurrency } from '../utils/currency';
+import { SUPPORTED_LOCALES, COUNTRY_PRESETS } from '../i18n';
 
 const AG_EMOJI = {KIDS:'🧒',TEENS:'🧑',ADULTS:'👤',SENIORS:'👴'};
+const ROLE_BADGE = {ADMIN:{label:'👑 Admin',bg:'rgba(239,68,68,0.15)',color:'var(--danger)'},EXPERT:{label:'🎓 Expert',bg:'rgba(99,102,241,0.15)',color:'var(--primary)'},SELLER:{label:'🛍️ Seller',bg:'rgba(245,158,11,0.15)',color:'var(--warning)'},USER:{label:null}};
 const AG_LABEL = {KIDS:'Kids (5–12)',TEENS:'Teens (13–17)',ADULTS:'Adults (18–59)',SENIORS:'Seniors (60+)'};
 const THEMES = [{v:'PLAYFUL',l:'🎨 Playful (colorful)'},{v:'STANDARD',l:'💼 Standard (dark)'},{v:'ACCESSIBLE',l:'🔎 Accessible (large text)'}];
 
 const COMMON_INTERESTS = ['Reading','Music','Gaming','Art','Cooking','Gardening','Chess','Photography','Dancing','Sports','Crafts','Writing','Science','Programming','Movies','Yoga','Hiking','Drawing','Knitting','Volunteering'];
 
 export default function Profile() {
+  const { t } = useTranslation();
   const { id } = useParams();
   const { currentUser, updateCurrentUser } = useAuth();
   const isOwn = currentUser?.id === id;
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [error, setError] = useState('');
+  const [gpsLoading, setGpsLoading] = useState(false);
   const setF = (k,v) => setEditForm(f=>({...f,[k]:v}));
 
   const { data, loading } = useQuery(USER_QUERY, { variables:{ id } });
@@ -40,8 +47,20 @@ export default function Profile() {
       building: user.location?.building||'', neighborhood: user.location?.neighborhood||'',
       city: user.location?.city||'', country: user.location?.country||'',
       theme: user.theme||'STANDARD',
+      currency: user.currency||'GBP',
+      locale: user.locale||'en-GB',
+      lat: user.location?.lat||null, lng: user.location?.lng||null,
     });
     setEditing(true);
+  };
+
+  const detectGPS = () => {
+    if (!navigator.geolocation) { alert('GPS not available in this browser'); return; }
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => { setF('lat', pos.coords.latitude); setF('lng', pos.coords.longitude); setGpsLoading(false); },
+      () => { alert('Could not get location. Check browser permissions.'); setGpsLoading(false); }
+    );
   };
 
   const toggleInterest = (i) => setF('interests', editForm.interests?.includes(i) ? editForm.interests.filter(x=>x!==i) : [...(editForm.interests||[]),i]);
@@ -49,8 +68,9 @@ export default function Profile() {
   const handleSave = async () => {
     setError('');
     try {
-      const { data:d } = await updateProfile({ variables: { bio:editForm.bio, interests:editForm.interests, age:editForm.age?parseInt(editForm.age):null, building:editForm.building||null, neighborhood:editForm.neighborhood||null, city:editForm.city||null, country:editForm.country||null, theme:editForm.theme||null }});
-      updateCurrentUser({ bio:d.updateProfile.bio, interests:d.updateProfile.interests, theme:d.updateProfile.theme, ageGroup:d.updateProfile.ageGroup, location:d.updateProfile.location });
+      const { data:d } = await updateProfile({ variables: { bio:editForm.bio, interests:editForm.interests, age:editForm.age?parseInt(editForm.age):null, building:editForm.building||null, neighborhood:editForm.neighborhood||null, city:editForm.city||null, country:editForm.country||null, theme:editForm.theme||null, currency:editForm.currency||null, locale:editForm.locale||null, lat:editForm.lat||null, lng:editForm.lng||null }});
+      updateCurrentUser({ bio:d.updateProfile.bio, interests:d.updateProfile.interests, theme:d.updateProfile.theme, ageGroup:d.updateProfile.ageGroup, location:d.updateProfile.location, currency:d.updateProfile.currency, locale:d.updateProfile.locale });
+      if (editForm.locale) i18n.changeLanguage(editForm.locale);
       setEditing(false);
     } catch(e) { setError(e.message); }
   };
@@ -71,8 +91,10 @@ export default function Profile() {
                     {user.location?.city && (
                       <span className="badge badge-dim">📍 {user.location.building||user.location.neighborhood||user.location.city}</span>
                     )}
-                    {user.tipsEarned > 0 && <span className="badge" style={{background:'rgba(245,158,11,0.15)',color:'var(--warning)'}}>⭐ {user.tipsEarned} coins earned</span>}
-                    {isOwn && <span className="badge" style={{background:'rgba(99,102,241,0.15)',color:'var(--primary)'}}>💰 {user.walletCoins} coins</span>}
+                    {user.role && ROLE_BADGE[user.role]?.label && <span className="badge" style={{background:ROLE_BADGE[user.role].bg,color:ROLE_BADGE[user.role].color}}>{ROLE_BADGE[user.role].label}</span>}
+                    {user.tipsEarned > 0 && <span className="badge" style={{background:'rgba(245,158,11,0.15)',color:'var(--warning)'}}>⭐ {formatCurrency(user.tipsEarned, user.currency||'GBP')} {t('tips_earned')}</span>}
+                    {isOwn && <span className="badge" style={{background:'rgba(99,102,241,0.15)',color:'var(--primary)'}}>💰 {user.walletCoins} {t('wallet_coins')}</span>}
+                    {user.currency && user.currency !== 'GBP' && <span className="badge badge-dim">{user.currency === 'USD' ? '🇺🇸' : user.currency === 'INR' ? '🇮🇳' : '🇬🇧'} {user.currency}</span>}
                   </div>
                 </div>
                 {isOwn && !editing && (
@@ -111,6 +133,11 @@ export default function Profile() {
                   <div className="form-group">
                     <label className="form-label">📍 {isSenior?'Where do you live?':'Location'}</label>
                     <div style={{display:'grid',gap:8}}>
+                      <button type="button" onClick={detectGPS} disabled={gpsLoading}
+                        style={{padding:'9px 16px',borderRadius:'var(--radius-sm)',border:'2px solid var(--border)',background:'var(--surface2)',color:'var(--primary)',fontWeight:600,cursor:'pointer',fontSize:'var(--font-sm)',fontFamily:'inherit',display:'flex',alignItems:'center',gap:8,justifyContent:'center'}}>
+                        {gpsLoading ? '⏳ Detecting…' : '📡 Detect my GPS location'}
+                        {editForm.lat && !gpsLoading && <span style={{color:'var(--success)',fontSize:12}}>✓ {editForm.lat?.toFixed(4)}, {editForm.lng?.toFixed(4)}</span>}
+                      </button>
                       <input className="input" placeholder="🏢 Building name (e.g. Elm Court, St. Mary's)" value={editForm.building} onChange={e=>setF('building',e.target.value)} />
                       <input className="input" placeholder="🏘️ Neighborhood or area" value={editForm.neighborhood} onChange={e=>setF('neighborhood',e.target.value)} />
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
@@ -133,10 +160,29 @@ export default function Profile() {
                     </div>
                   </div>
 
+                  {/* Currency & Region */}
+                  <div className="form-group">
+                    <label className="form-label">💱 {t('profile_currency_settings')}</label>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginTop:4}}>
+                      <div>
+                        <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:4,fontWeight:600}}>Currency</div>
+                        <select className="input" value={editForm.currency} onChange={e=>setF('currency',e.target.value)}>
+                          {CURRENCY_OPTIONS.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:4,fontWeight:600}}>Language</div>
+                        <select className="input" value={editForm.locale} onChange={e=>setF('locale',e.target.value)}>
+                          {SUPPORTED_LOCALES.map(l=><option key={l.code} value={l.code}>{l.flag} {l.label}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
                   {error && <div style={{color:'var(--danger)',fontSize:'var(--font-sm)',marginBottom:10}}>{error}</div>}
                   <div style={{display:'flex',gap:8}}>
-                    <button className="btn btn-ghost" style={{flex:1}} onClick={()=>setEditing(false)}>Cancel</button>
-                    <button className="btn btn-primary" style={{flex:2}} onClick={handleSave} disabled={saving}>{saving?'Saving…':'Save Changes'}</button>
+                    <button className="btn btn-ghost" style={{flex:1}} onClick={()=>setEditing(false)}>{t('profile_cancel')}</button>
+                    <button className="btn btn-primary" style={{flex:2}} onClick={handleSave} disabled={saving}>{saving?'Saving…':t('profile_save')}</button>
                   </div>
                 </div>
               ) : (

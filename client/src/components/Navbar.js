@@ -38,6 +38,9 @@ export default function Navbar({ onAuthClick }) {
   const NAV_LINKS = [
     { path:'/', label: currentUser?.ageGroup==='KIDS' ? '🏠 Home' : currentUser?.ageGroup==='SENIORS' ? '🏠 Home' : 'Explore' },
     { path:'/find-folks', label: currentUser?.ageGroup==='KIDS' ? '🤝 Find Friends' : currentUser?.ageGroup==='SENIORS' ? '🤝 Find Neighbors' : 'Find Folks' },
+    ...(currentUser?.role==='EXPERT' || currentUser?.role==='ADMIN' ? [{ path:'/expert', label:'🎓 Expert' }] : []),
+    ...(currentUser?.role==='SELLER' || currentUser?.role==='ADMIN' ? [{ path:'/seller', label:'🛍️ Seller' }] : []),
+    ...(currentUser?.role==='ADMIN' ? [{ path:'/admin', label:'👑 Admin' }] : []),
   ];
 
   return (
@@ -45,7 +48,21 @@ export default function Navbar({ onAuthClick }) {
       <div className="container" style={{height:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
         {/* Logo */}
         <Link to="/" style={{display:'flex',alignItems:'center',gap:10,fontWeight:800,fontSize:'var(--font-lg)',flexShrink:0}}>
-          <span style={{fontSize:28}}>🔗</span>
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="16" cy="16" r="15" fill="url(#lg1)" />
+            <circle cx="16" cy="10" r="4" fill="white" opacity="0.95"/>
+            <circle cx="8" cy="22" r="3.5" fill="white" opacity="0.85"/>
+            <circle cx="24" cy="22" r="3.5" fill="white" opacity="0.85"/>
+            <line x1="16" y1="14" x2="8" y2="18.5" stroke="white" strokeWidth="1.8" strokeOpacity="0.7"/>
+            <line x1="16" y1="14" x2="24" y2="18.5" stroke="white" strokeWidth="1.8" strokeOpacity="0.7"/>
+            <line x1="8" y1="22" x2="24" y2="22" stroke="white" strokeWidth="1.8" strokeOpacity="0.5"/>
+            <defs>
+              <linearGradient id="lg1" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#6366f1"/>
+                <stop offset="1" stopColor="#8b5cf6"/>
+              </linearGradient>
+            </defs>
+          </svg>
           <span style={{background:'linear-gradient(135deg, var(--primary), var(--accent))',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
             HobbyOrigin
           </span>
@@ -110,7 +127,13 @@ export default function Navbar({ onAuthClick }) {
                       {currentUser.walletCoins > 0 && <span style={{display:'block',fontSize:'calc(var(--font-sm) - 1px)',color:'var(--warning)'}}>💰 {currentUser.walletCoins} coins</span>}
                       {currentUser.tipsEarned > 0 && <span style={{display:'block',fontSize:'calc(var(--font-sm) - 1px)',color:'var(--warning)'}}>⭐ {currentUser.tipsEarned} earned</span>}
                     </div>
-                    {[{to:`/profile/${currentUser.id}`,label:'👤 My Profile'},{to:'/notifications',label:'🔔 Notifications'}].map(item=>(
+                    {[
+                      {to:`/profile/${currentUser.id}`,label:'👤 My Profile'},
+                      {to:'/notifications',label:'🔔 Notifications'},
+                      ...(currentUser.role==='EXPERT'||currentUser.role==='ADMIN' ? [{to:'/expert',label:'🎓 Expert Dashboard'}] : []),
+                      ...(currentUser.role==='SELLER'||currentUser.role==='ADMIN' ? [{to:'/seller',label:'🛍️ Seller Dashboard'}] : []),
+                      ...(currentUser.role==='ADMIN' ? [{to:'/admin',label:'👑 Admin Dashboard'}] : []),
+                    ].map(item=>(
                       <Link key={item.to} to={item.to} style={{display:'block',padding:'8px 12px',borderRadius:'var(--radius-sm)',fontSize:'var(--font-sm)',color:'var(--text-muted)'}}
                         onClick={()=>setMenuOpen(false)}
                         onMouseEnter={e=>e.currentTarget.style.background='var(--surface2)'}
