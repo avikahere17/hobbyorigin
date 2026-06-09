@@ -18,17 +18,32 @@ const COMMON_INTERESTS = ['Reading','Music','Gaming','Art','Cooking','Gardening'
 
 export default function Profile() {
   const { t } = useTranslation();
-  const { id } = useParams();
+  const { id: paramId } = useParams();
   const { currentUser, updateCurrentUser, logout } = useAuth();
   const navigate = useNavigate();
-  const isOwn = currentUser?.id === id;
+
+  // If no id in URL, redirect to own profile
+  React.useEffect(() => {
+    if (!paramId && currentUser?.id) {
+      navigate(`/profile/${currentUser.id}`, { replace: true });
+    }
+  }, [paramId, currentUser, navigate]);
+
+  // Use paramId if present, otherwise fall back to currentUser's id
+  const id = paramId || currentUser?.id;
+  const isOwn = !!(currentUser?.id && currentUser.id === id);
+
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [error, setError] = useState('');
   const [gpsLoading, setGpsLoading] = useState(false);
   const setF = (k,v) => setEditForm(f=>({...f,[k]:v}));
 
-  const { data, loading } = useQuery(USER_QUERY, { variables:{ id } });
+  const { data, loading, error: queryError } = useQuery(USER_QUERY, {
+    variables: { id },
+    skip: !id,
+    fetchPolicy: 'cache-and-network',
+  });
   const [linkChildEmail, setLinkChildEmail] = useState('');
   const [coinTarget, setCoinTarget] = useState('');
   const [coinAmount, setCoinAmount] = useState(10);
@@ -47,10 +62,29 @@ export default function Profile() {
   const [requestExport] = useMutation(REQUEST_DATA_EXPORT_MUTATION);
   const [deleteAccount, { loading: deleting }] = useMutation(DELETE_MY_ACCOUNT_MUTATION);
 
-  if (loading) return <div className="page"><div className="loading-center"><div className="spinner" /></div></div>;
-  if (!data?.user) return <div className="page container" style={{paddingTop:100}}><div className="empty-state"><div className="empty-state-icon">😕</div><div className="empty-state-title">User not found</div></div></div>;
+  if (loading && !data) return <div className="page"><div className="loading-center"><div className="spinner" /></div></div>;
 
-  const user = data.user;
+  // For own profile: fall back to currentUser from auth context while query is in-flight or if query fails
+  const user = data?.user || (isOwn ? currentUser : null);
+
+  if (!user) return (
+    <div className="page container" style={{paddingTop:100}}>
+      <div className="empty-state">
+        <div className="empty-state-icon">😕</div>
+        <div className="empty-state-title">Profile not found</div>
+        <div className="empty-state-desc" style={{marginTop:8}}>
+          {queryError ? 'Could not load profile. Check your connection.' : 'This user may not exist or has been removed.'}
+        </div>
+        {isOwn && (
+          <div style={{marginTop:16,display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap'}}>
+            <button className="btn btn-primary" onClick={() => window.location.reload()}>↻ Retry</button>
+            <button className="btn btn-ghost" onClick={() => { logout(); navigate('/'); }}>Sign out &amp; re-login</button>
+          </div>
+        )}
+        {!isOwn && <Link to="/" className="btn btn-primary" style={{marginTop:16}}>Back to groups</Link>}
+      </div>
+    </div>
+  );
   const isSenior = user.ageGroup === 'SENIORS';
   const isKids = user.ageGroup === 'KIDS';
 

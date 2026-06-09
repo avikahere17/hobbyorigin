@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
-import { ApolloProvider } from '@apollo/client';
+import { ApolloProvider, useQuery } from '@apollo/client';
 import { client } from './apollo';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ME_QUERY } from './graphql';
 import Navbar from './components/Navbar';
 import AuthModal from './components/AuthModal';
 import Home from './pages/Home';
@@ -43,6 +44,25 @@ function DeepLinkHandler({ openAuth }) {
   return null;
 }
 
+// Keeps currentUser in localStorage in sync with the DB — runs on every page load and every 5 min
+function UserRefresher() {
+  const { currentUser, updateCurrentUser, logout } = useAuth();
+  const { data } = useQuery(ME_QUERY, {
+    skip: !currentUser,
+    fetchPolicy: 'network-only',
+    pollInterval: 5 * 60 * 1000, // refresh every 5 min
+  });
+  useEffect(() => {
+    if (data?.me) {
+      updateCurrentUser(data.me); // sync fresh data from DB into auth context + localStorage
+    } else if (data && data.me === null && currentUser) {
+      // Token is no longer valid — clear stale session
+      logout();
+    }
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+}
+
 function AppContent() {
   const [authModal, setAuthModal] = useState(null);
   const openAuth = (mode = 'login') => setAuthModal(mode);
@@ -50,6 +70,7 @@ function AppContent() {
 
   return (
     <BrowserRouter>
+      <UserRefresher />
       <DeepLinkHandler openAuth={openAuth} />
       <Navbar onAuthClick={openAuth} />
       <Routes>
