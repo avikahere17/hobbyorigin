@@ -159,7 +159,7 @@ export default function Home({ onAuthRequired }) {
         {loading && !data && <div className="loading-center"><div className="spinner" /></div>}
         {error && (
           <div style={{background:'rgba(239,68,68,0.1)',border:'2px solid rgba(239,68,68,0.3)',borderRadius:'var(--radius)',padding:20,color:'var(--danger)'}}>
-            ⚠️ Could not load groups. Make sure the server is running on port 4000.
+            ⚠️ Could not load groups. Please check your connection and try again.
           </div>
         )}
         {!loading && groups.length===0 && (
