@@ -12,6 +12,9 @@ import {
   createProduct, getGroupProducts,
   createCampaign, getGroupCampaigns,
   getWallet, addCoins, linkParentChild, getChildren,
+  registerExpert, getExpert, getExpertByUser, updateExpert, searchExperts as dbSearchExperts,
+  createBooking, getBooking, getUserBookings, getExpertBookings, updateBookingStatus,
+  createReview, getExpertReviews,
 } from './database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hobbyorigin_secret_2024';
@@ -107,6 +110,31 @@ function resolveCampaign(c) {
   return { ...c, creator: resolveUser(getUser(c.creatorId)) };
 }
 
+function resolveExpert(e) {
+  if (!e) return null;
+  return {
+    ...e,
+    user: resolveUser(getUser(e.userId)),
+    reviews: getExpertReviews(e.id).map(r => ({
+      ...r,
+      expertId: r.expert_id,
+      userId: r.user_id,
+      bookingId: r.booking_id,
+      createdAt: r.created_at,
+      reviewer: resolveUser(getUser(r.user_id)),
+    })),
+  };
+}
+
+function resolveBooking(b) {
+  if (!b) return null;
+  return {
+    ...b,
+    expert: resolveExpert(getExpert(b.expertId)),
+    user: resolveUser(getUser(b.userId)),
+  };
+}
+
 // ── Session reminder scheduler ────────────────────────────────────────────────
 // Runs every 5 minutes, notifies group members 1h before a scheduled session
 let _pubsub = null;
@@ -184,10 +212,33 @@ export const resolvers = {
 
     groupCampaigns: (_, { groupId }) =>
       getGroupCampaigns(groupId).map(resolveCampaign),
+
+    searchExperts: (_, { skill, isElderSupport, country, serviceType }) =>
+      dbSearchExperts({ skill, isElderSupport, country, serviceType }).map(resolveExpert),
+
+    expert: (_, { id }) => resolveExpert(getExpert(id)),
+
+    myExpertProfile: (_, __, { user }) => {
+      requireAuth(user);
+      const e = getExpertByUser(user.id);
+      return e ? resolveExpert(e) : null;
+    },
+
+    myBookings: (_, __, { user }) => {
+      requireAuth(user);
+      return getUserBookings(user.id).map(resolveBooking);
+    },
+
+    expertBookings: (_, __, { user }) => {
+      requireAuth(user);
+      const expert = getExpertByUser(user.id);
+      if (!expert) throw new GraphQLError('You are not registered as an expert');
+      return getExpertBookings(expert.id).map(resolveBooking);
+    },
   },
 
   Mutation: {
-    register: async (_, { name, email, password, age, city, country, building, neighborhood }) => {
+    register: async (_, { name, email, password, age, city, country, building, neighborhood, currency, locale }) => {
       if (getUserByEmail(email)) throw new GraphQLError('Email already in use');
       if (password.length < 6) throw new GraphQLError('Password must be at least 6 characters');
       const hashed = await bcrypt.hash(password, 10);
@@ -195,8 +246,8 @@ export const resolvers = {
       const theme = ageGroupToTheme(ageGroup);
       const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
       const id = uuid();
-      const user = createUser({ id, name, email, password: hashed, avatarColor: color, age: age || null, ageGroup, theme, createdAt: new Date().toISOString() });
-      if (city || building) updateUser(id, { city: city||'', country: country||'', building: building||'', neighborhood: neighborhood||'' });
+      const user = createUser({ id, name, email, password: hashed, avatarColor: color, age: age || null, ageGroup, theme, currency: currency||'GBP', locale: locale||'en-GB', createdAt: new Date().toISOString() });
+      if (city || building || country) updateUser(id, { city: city||'', country: country||'', building: building||'', neighborhood: neighborhood||'' });
       const token = jwt.sign({ userId: id }, JWT_SECRET, { expiresIn: '30d' });
       return { token, user: resolveUser(getUser(id)) };
     },
@@ -212,6 +263,8 @@ export const resolvers = {
       requireAuth(user);
       const dbFields = { bio: args.bio, interests: args.interests, age: args.age, building: args.building, neighborhood: args.neighborhood, city: args.city, country: args.country, language: args.language };
       if (args.theme) dbFields.theme = args.theme;
+      if (args.currency) dbFields.currency = args.currency;
+      if (args.locale) dbFields.locale = args.locale;
       if (args.age) { dbFields.age_group = ageToGroup(args.age); }
       updateUser(user.id, dbFields);
       return resolveUser(getUser(user.id));
@@ -352,6 +405,86 @@ export const resolvers = {
       if (child.age_group !== 'KIDS' && child.age_group !== 'TEENS') throw new GraphQLError('Can only link to KIDS or TEENS accounts');
       linkParentChild(user.id, child.id);
       return resolveUser(getUser(child.id));
+    },
+
+    registerAsExpert: (_, args, { user }) => {
+      requireAuth(user);
+      const existing = getExpertByUser(user.id);
+      if (existing) throw new GraphQLError('You are already registered as an expert');
+      if (!args.skills || args.skills.length === 0) throw new GraphQLError('At least one skill is required');
+      const id = uuid();
+      const expert = registerExpert({ id, userId: user.id, ...args });
+      return resolveExpert(expert);
+    },
+
+    updateExpertProfile: (_, args, { user }) => {
+      requireAuth(user);
+      const expert = getExpertByUser(user.id);
+      if (!expert) throw new GraphQLError('Expert profile not found');
+      const dbFields = {};
+      if (args.headline !== undefined) dbFields.headline = args.headline;
+      if (args.bio !== undefined) dbFields.bio = args.bio;
+      if (args.skills) dbFields.skills = args.skills;
+      if (args.serviceType) dbFields.service_type = args.serviceType;
+      if (args.hourlyRate !== undefined) dbFields.hourly_rate = args.hourlyRate;
+      if (args.currency) dbFields.currency = args.currency;
+      if (args.languages) dbFields.languages = args.languages;
+      if (args.countries) dbFields.countries = args.countries;
+      if (args.isElderSupport !== undefined) dbFields.is_elder_support = args.isElderSupport ? 1 : 0;
+      if (args.availability !== undefined) dbFields.availability = args.availability;
+      return resolveExpert(updateExpert(expert.id, dbFields));
+    },
+
+    bookExpert: (_, { expertId, skill, serviceType, scheduledAt, durationMins, notes }, { user }) => {
+      requireAuth(user);
+      const expert = getExpert(expertId);
+      if (!expert) throw new GraphQLError('Expert not found');
+      if (expert.userId === user.id) throw new GraphQLError('You cannot book yourself');
+      const effectiveServiceType = serviceType || expert.serviceType === 'CHARITY' ? 'CHARITY' : 'PAID';
+      const amount = effectiveServiceType === 'CHARITY' ? 0 : (expert.hourlyRate * (durationMins || 60)) / 60;
+      const id = uuid();
+      const booking = createBooking({ id, expertId, userId: user.id, skill, serviceType: effectiveServiceType, scheduledAt, durationMins: durationMins||60, amount: Math.round(amount), currency: expert.currency, notes });
+      // Notify expert
+      const expertUser = getUser(expert.userId);
+      const notifId = uuid();
+      createNotification({ id: notifId, userId: expert.userId, type: 'BOOKING_REQUEST', title: `📅 New booking from ${user.name}`, message: `${user.name} has requested a session on ${skill}`, actorId: user.id });
+      return resolveBooking(booking);
+    },
+
+    confirmBooking: (_, { bookingId, meetingUrl }, { user }) => {
+      requireAuth(user);
+      const booking = getBooking(bookingId);
+      if (!booking) throw new GraphQLError('Booking not found');
+      const expert = getExpert(booking.expertId);
+      if (expert.userId !== user.id) throw new GraphQLError('Only the expert can confirm this booking');
+      return resolveBooking(updateBookingStatus(bookingId, 'CONFIRMED', meetingUrl));
+    },
+
+    cancelBooking: (_, { bookingId }, { user }) => {
+      requireAuth(user);
+      const booking = getBooking(bookingId);
+      if (!booking) throw new GraphQLError('Booking not found');
+      const expert = getExpert(booking.expertId);
+      if (booking.userId !== user.id && expert.userId !== user.id) throw new GraphQLError('Not authorised');
+      return resolveBooking(updateBookingStatus(bookingId, 'CANCELLED', ''));
+    },
+
+    completeBooking: (_, { bookingId }, { user }) => {
+      requireAuth(user);
+      const booking = getBooking(bookingId);
+      if (!booking) throw new GraphQLError('Booking not found');
+      const expert = getExpert(booking.expertId);
+      if (expert.userId !== user.id) throw new GraphQLError('Only the expert can mark this completed');
+      return resolveBooking(updateBookingStatus(bookingId, 'COMPLETED', booking.meetingUrl));
+    },
+
+    reviewExpert: (_, { expertId, bookingId, rating, comment }, { user }) => {
+      requireAuth(user);
+      if (rating < 1 || rating > 5) throw new GraphQLError('Rating must be 1–5');
+      const expert = getExpert(expertId);
+      if (!expert) throw new GraphQLError('Expert not found');
+      const id = uuid();
+      return resolveExpert(createReview({ id, expertId, userId: user.id, bookingId, rating, comment }));
     },
   },
 

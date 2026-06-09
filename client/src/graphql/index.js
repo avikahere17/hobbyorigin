@@ -1,6 +1,6 @@
 import { gql } from '@apollo/client';
 
-const USER_FIELDS = `id name email bio interests avatarColor age ageGroup theme language unreadCount tipsEarned walletCoins createdAt
+const USER_FIELDS = `id name email bio interests avatarColor age ageGroup theme language currency locale unreadCount tipsEarned walletCoins createdAt
   location { building neighborhood city country }
   children { id name age ageGroup avatarColor walletCoins }`;
 
@@ -65,8 +65,8 @@ export const GROUP_CAMPAIGNS_QUERY = gql`query GroupCampaigns($groupId:ID!) {
   groupCampaigns(groupId:$groupId) { ${CAMPAIGN_FIELDS} }
 }`;
 
-export const REGISTER_MUTATION = gql`mutation Register($name:String!,$email:String!,$password:String!,$age:Int,$city:String,$country:String,$building:String,$neighborhood:String) {
-  register(name:$name,email:$email,password:$password,age:$age,city:$city,country:$country,building:$building,neighborhood:$neighborhood) {
+export const REGISTER_MUTATION = gql`mutation Register($name:String!,$email:String!,$password:String!,$age:Int,$city:String,$country:String,$building:String,$neighborhood:String,$currency:String,$locale:String) {
+  register(name:$name,email:$email,password:$password,age:$age,city:$city,country:$country,building:$building,neighborhood:$neighborhood,currency:$currency,locale:$locale) {
     token user { ${USER_FIELDS} joinedGroups { id name } }
   }
 }`;
@@ -93,8 +93,8 @@ export const SEND_MESSAGE_MUTATION = gql`mutation SendMessage($groupId:ID!,$cont
   sendMessage(groupId:$groupId,content:$content) { id content createdAt groupId sender { id name avatarColor } }
 }`;
 
-export const UPDATE_PROFILE_MUTATION = gql`mutation UpdateProfile($bio:String,$interests:[String!],$age:Int,$building:String,$neighborhood:String,$city:String,$country:String,$language:String,$theme:Theme) {
-  updateProfile(bio:$bio,interests:$interests,age:$age,building:$building,neighborhood:$neighborhood,city:$city,country:$country,language:$language,theme:$theme) {
+export const UPDATE_PROFILE_MUTATION = gql`mutation UpdateProfile($bio:String,$interests:[String!],$age:Int,$building:String,$neighborhood:String,$city:String,$country:String,$language:String,$theme:Theme,$currency:String,$locale:String) {
+  updateProfile(bio:$bio,interests:$interests,age:$age,building:$building,neighborhood:$neighborhood,city:$city,country:$country,language:$language,theme:$theme,currency:$currency,locale:$locale) {
     ${USER_FIELDS}
   }
 }`;
@@ -144,4 +144,55 @@ export const GROUP_MEMBER_SUBSCRIPTION = gql`subscription GroupMemberChanged($gr
 
 export const NOTIFICATION_SUBSCRIPTION = gql`subscription NotificationReceived {
   notificationReceived { id type title message isRead groupId createdAt }
+}`;
+
+/* ═══════════════════════════════════════ EXPERT NETWORK ══════════════════════ */
+
+const EXPERT_FIELDS = `id userId headline bio skills serviceType hourlyRate currency
+  languages countries isElderSupport isVerified ratingAvg ratingCount totalSessions availability createdAt
+  user { id name avatarColor ageGroup age location { city country building } }
+  reviews { id rating comment createdAt reviewer { id name avatarColor } }`;
+
+const BOOKING_FIELDS = `id skill serviceType scheduledAt durationMins amount currency status notes meetingUrl createdAt
+  expert { id userId headline skills ratingAvg user { id name avatarColor } }
+  user { id name avatarColor }`;
+
+export const SEARCH_EXPERTS_QUERY = gql`query SearchExperts($skill:String,$isElderSupport:Boolean,$country:String,$serviceType:ServiceType) {
+  searchExperts(skill:$skill,isElderSupport:$isElderSupport,country:$country,serviceType:$serviceType) { ${EXPERT_FIELDS} }
+}`;
+
+export const EXPERT_QUERY = gql`query Expert($id:ID!) { expert(id:$id) { ${EXPERT_FIELDS} } }`;
+
+export const MY_EXPERT_PROFILE_QUERY = gql`query MyExpertProfile { myExpertProfile { ${EXPERT_FIELDS} } }`;
+
+export const MY_BOOKINGS_QUERY = gql`query MyBookings { myBookings { ${BOOKING_FIELDS} } }`;
+
+export const EXPERT_BOOKINGS_QUERY = gql`query ExpertBookings { expertBookings { ${BOOKING_FIELDS} } }`;
+
+export const REGISTER_AS_EXPERT_MUTATION = gql`mutation RegisterAsExpert($headline:String!,$bio:String,$skills:[String!]!,$serviceType:ServiceType,$hourlyRate:Int,$currency:String,$languages:[String!],$countries:[String!],$isElderSupport:Boolean,$availability:String) {
+  registerAsExpert(headline:$headline,bio:$bio,skills:$skills,serviceType:$serviceType,hourlyRate:$hourlyRate,currency:$currency,languages:$languages,countries:$countries,isElderSupport:$isElderSupport,availability:$availability) { ${EXPERT_FIELDS} }
+}`;
+
+export const UPDATE_EXPERT_PROFILE_MUTATION = gql`mutation UpdateExpertProfile($headline:String,$bio:String,$skills:[String!],$serviceType:ServiceType,$hourlyRate:Int,$currency:String,$languages:[String!],$countries:[String!],$isElderSupport:Boolean,$availability:String) {
+  updateExpertProfile(headline:$headline,bio:$bio,skills:$skills,serviceType:$serviceType,hourlyRate:$hourlyRate,currency:$currency,languages:$languages,countries:$countries,isElderSupport:$isElderSupport,availability:$availability) { ${EXPERT_FIELDS} }
+}`;
+
+export const BOOK_EXPERT_MUTATION = gql`mutation BookExpert($expertId:ID!,$skill:String!,$serviceType:ServiceType,$scheduledAt:String!,$durationMins:Int,$notes:String) {
+  bookExpert(expertId:$expertId,skill:$skill,serviceType:$serviceType,scheduledAt:$scheduledAt,durationMins:$durationMins,notes:$notes) { ${BOOKING_FIELDS} }
+}`;
+
+export const CONFIRM_BOOKING_MUTATION = gql`mutation ConfirmBooking($bookingId:ID!,$meetingUrl:String) {
+  confirmBooking(bookingId:$bookingId,meetingUrl:$meetingUrl) { ${BOOKING_FIELDS} }
+}`;
+
+export const CANCEL_BOOKING_MUTATION = gql`mutation CancelBooking($bookingId:ID!) {
+  cancelBooking(bookingId:$bookingId) { ${BOOKING_FIELDS} }
+}`;
+
+export const COMPLETE_BOOKING_MUTATION = gql`mutation CompleteBooking($bookingId:ID!) {
+  completeBooking(bookingId:$bookingId) { ${BOOKING_FIELDS} }
+}`;
+
+export const REVIEW_EXPERT_MUTATION = gql`mutation ReviewExpert($expertId:ID!,$bookingId:ID!,$rating:Int!,$comment:String) {
+  reviewExpert(expertId:$expertId,bookingId:$bookingId,rating:$rating,comment:$comment) { id ratingAvg ratingCount reviews { id rating comment createdAt reviewer { id name } } }
 }`;

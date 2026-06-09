@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>HobbyOrigin — LinkedIn Company Page Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: #F3F2EF; color: #191919; min-height: 100vh; }
+
+    /* ── LinkedIn chrome ── */
+    .li-header {
+      background: white;
+      border-bottom: 1px solid #E0DFDC;
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .li-logo { display: flex; align-items: center; gap: 6px; font-size: 24px; }
+    .li-logo svg { fill: #0A66C2; }
+    .li-nav { display: flex; gap: 24px; }
+    .li-nav-item { display: flex; flex-direction: column; align-items: center; gap: 2px; color: #666; font-size: 12px; cursor: pointer; padding: 0 8px; }
+    .li-nav-item svg { fill: #666; }
+    .li-nav-item.active { color: #191919; border-bottom: 2px solid #191919; padding-bottom: -2px; }
+    .li-nav-item.active svg { fill: #191919; }
+
+    /* ── Page layout ── */
+    .li-layout { max-width: 1128px; margin: 24px auto; padding: 0 16px; display: grid; grid-template-columns: 1fr 360px; gap: 24px; }
+
+    /* ── Main column ── */
+    .li-main { display: flex; flex-direction: column; gap: 8px; }
+
+    /* ── Company header card ── */
+    .company-header-card { background: white; border-radius: 8px; overflow: hidden; border: 1px solid #E0DFDC; }
+    .company-banner {
+      height: 191px;
+      background: linear-gradient(135deg, #0d0d1a 0%, #1a0a2e 40%, #0a1428 60%, #0d0d1a 100%);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 48px;
+      position: relative;
+      overflow: hidden;
+    }
+    .banner-orb { position: absolute; border-radius: 50%; filter: blur(60px); opacity: 0.2; }
+    .banner-orb-1 { width: 200px; height: 200px; background: #6366f1; top: -60px; left: 80px; }
+    .banner-orb-2 { width: 150px; height: 150px; background: #ec4899; bottom: -40px; right: 200px; }
+    .banner-left { position: relative; z-index: 1; }
+    .banner-logo-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .banner-icon { font-size: 36px; }
+    .banner-name { font-size: 28px; font-weight: 900; color: white; letter-spacing: -0.5px; }
+    .banner-tagline { font-size: 14px; color: #a5b4fc; font-style: italic; }
+    .banner-right { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+    .banner-flag-row { display: flex; gap: 12px; }
+    .banner-flag { font-size: 22px; }
+    .banner-global { font-size: 12px; color: #c7d2fe; text-align: right; }
+
+    .company-info { padding: 16px 24px 24px; }
+    .company-logo-row { display: flex; align-items: flex-end; justify-content: space-between; margin-top: -32px; margin-bottom: 12px; }
+    .company-logo-circle {
+      width: 80px; height: 80px; border-radius: 12px;
+      background: linear-gradient(135deg, #5b5fbd, #8b5cf6);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 40px; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .company-follow-btn {
+      padding: 7px 20px;
+      border: 1.5px solid #0A66C2;
+      border-radius: 20px;
+      color: #0A66C2;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      background: white;
+      transition: all 0.15s;
+    }
+    .company-follow-btn:hover { background: #EEF3FB; }
+    .company-name { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .company-tagline { font-size: 14px; color: #555; margin-bottom: 8px; }
+    .company-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; color: #555; margin-bottom: 12px; }
+    .company-meta-item { display: flex; align-items: center; gap: 4px; }
+    .company-follower-bar { display: flex; gap: 8px; align-items: center; font-size: 13px; color: #0A66C2; font-weight: 500; border-top: 1px solid #E0DFDC; padding-top: 12px; margin-top: 4px; }
+
+    /* ── Nav tabs ── */
+    .company-nav { background: white; border-radius: 0 0 8px 8px; border: 1px solid #E0DFDC; border-top: none; }
+    .company-nav-tabs { display: flex; padding: 0 24px; border-top: 1px solid #E0DFDC; }
+    .cnav-tab { padding: 12px 16px; font-size: 14px; font-weight: 500; color: #666; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
+    .cnav-tab:hover { color: #191919; background: #F3F2EF; }
+    .cnav-tab.active { color: #191919; border-bottom-color: #191919; font-weight: 600; }
+
+    /* ── Post cards ── */
+    .post-card { background: white; border: 1px solid #E0DFDC; border-radius: 8px; overflow: hidden; }
+    .post-header { padding: 16px 16px 12px; display: flex; gap: 12px; align-items: flex-start; }
+    .post-avatar { width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #5b5fbd, #8b5cf6); display: flex; align-items: center; justify-content: center; font-size: 24px; flex-shrink: 0; }
+    .post-meta { flex: 1; }
+    .post-meta-name { font-weight: 600; font-size: 14px; }
+    .post-meta-sub { font-size: 12px; color: #666; }
+    .post-time { font-size: 12px; color: #888; }
+    .post-body { padding: 0 16px 12px; font-size: 14px; line-height: 1.6; color: #191919; }
+    .post-body .highlight { font-weight: 600; color: #0A66C2; }
+    .post-body .stat { font-size: 18px; font-weight: 700; color: #5b5fbd; }
+    .post-tags { padding: 0 16px 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .post-tag { font-size: 12px; color: #0A66C2; font-weight: 500; }
+    .post-actions { padding: 4px 16px 12px; display: flex; gap: 0; border-top: 1px solid #E0DFDC; }
+    .post-action-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px; font-size: 13px; font-weight: 500; color: #666; cursor: pointer; border-radius: 4px; transition: background 0.15s; }
+    .post-action-btn:hover { background: #F3F2EF; }
+    .post-reactions { padding: 8px 16px; font-size: 12px; color: #666; display: flex; justify-content: space-between; }
+
+    /* ── About card ── */
+    .about-card { background: white; border: 1px solid #E0DFDC; border-radius: 8px; padding: 24px; }
+    .about-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+    .about-card p { font-size: 14px; line-height: 1.65; color: #444; margin-bottom: 12px; }
+    .about-detail-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; font-size: 14px; color: #444; }
+    .about-detail-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .spec-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .spec-tag { padding: 4px 12px; background: #EEF3FB; border-radius: 20px; font-size: 12px; color: #0A66C2; font-weight: 500; }
+
+    /* ── Right column ── */
+    .li-sidebar { display: flex; flex-direction: column; gap: 8px; }
+    .sidebar-card { background: white; border: 1px solid #E0DFDC; border-radius: 8px; padding: 20px; }
+    .sidebar-card h4 { font-size: 14px; font-weight: 700; margin-bottom: 14px; }
+    .people-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+    .people-avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; color: white; flex-shrink: 0; }
+    .people-name { font-size: 13px; font-weight: 600; }
+    .people-role { font-size: 12px; color: #666; }
+    .connect-btn { margin-top: 4px; padding: 4px 14px; border: 1.5px solid #555; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; background: white; color: #555; }
+
+    .ad-card { background: white; border: 1px solid #E0DFDC; border-radius: 8px; overflow: hidden; }
+    .ad-card-img { height: 100px; background: linear-gradient(135deg, #0d0d1a, #1a0a2e); display: flex; align-items: center; justify-content: center; font-size: 36px; }
+    .ad-card-body { padding: 14px; }
+    .ad-card-body h5 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .ad-card-body p { font-size: 12px; color: #666; margin-bottom: 10px; }
+    .ad-follow { padding: 6px 16px; border: 1.5px solid #0A66C2; border-radius: 20px; font-size: 13px; font-weight: 600; color: #0A66C2; cursor: pointer; background: white; width: 100%; }
+    .ad-note { font-size: 11px; color: #888; text-align: center; margin-top: 8px; }
+
+    /* ── Notice bar ── */
+    .notice-bar { background: #FFF8E7; border: 1px solid #F59E0B; border-radius: 8px; padding: 14px 20px; font-size: 13px; color: #92400E; display: flex; gap: 10px; align-items: flex-start; margin-bottom: 0; }
+    .notice-bar strong { font-weight: 700; }
+
+    /* ── Founder post highlight ── */
+    .founder-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; background: #FDF2F8; border: 1px solid #F9A8D4; border-radius: 20px; font-size: 11px; font-weight: 600; color: #BE185D; margin-bottom: 8px; }
+
+    .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; background: #EEF3FB; border-radius: 20px; font-size: 11px; font-weight: 600; color: #0A66C2; }
+
+    @media (max-width: 768px) {
+      .li-layout { grid-template-columns: 1fr; }
+      .li-sidebar { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- LinkedIn top nav -->
+<header class="li-header">
+  <div class="li-logo">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="34" height="34">
+      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+    </svg>
+  </div>
+  <nav class="li-nav">
+    <div class="li-nav-item">🏠<span>Home</span></div>
+    <div class="li-nav-item">👥<span>My Network</span></div>
+    <div class="li-nav-item">💼<span>Jobs</span></div>
+    <div class="li-nav-item">💬<span>Messaging</span></div>
+    <div class="li-nav-item active">🔔<span>Notifications</span></div>
+  </nav>
+  <div style="font-size:13px;color:#666">linkedin.com/company/<strong style="color:#0A66C2">hobbyorigin</strong></div>
+</header>
+
+<div class="li-layout">
+
+  <!-- ═══════════════════ MAIN COLUMN ═══════════════════ -->
+  <main class="li-main">
+
+    <!-- Notice -->
+    <div class="notice-bar">
+      📋 <div><strong>Setup Guide:</strong> This is a visual mockup of your LinkedIn Company Page. Use <strong>HobbyOrigin_LinkedIn_Playbook.docx</strong> to copy all text and follow the step-by-step setup instructions.</div>
+    </div>
+
+    <!-- Company Header -->
+    <div class="company-header-card">
+      <div class="company-banner">
+        <div class="banner-orb banner-orb-1"></div>
+        <div class="banner-orb banner-orb-2"></div>
+        <div class="banner-left">
+          <div class="banner-logo-row">
+            <span class="banner-icon">🔗</span>
+            <span class="banner-name">HobbyOrigin</span>
+          </div>
+          <div class="banner-tagline">Where Hobbies Build Communities</div>
+        </div>
+        <div class="banner-right">
+          <div class="banner-flag-row">
+            <span class="banner-flag">🇬🇧</span>
+            <span class="banner-flag">🇺🇸</span>
+            <span class="banner-flag">🇮🇳</span>
+          </div>
+          <div class="banner-global">UK · USA · India<br/>£ · $ · ₹</div>
+        </div>
+      </div>
+
+      <div class="company-info">
+        <div class="company-logo-row">
+          <div class="company-logo-circle">🔗</div>
+          <div style="display:flex;gap:8px">
+            <button class="company-follow-btn">+ Follow</button>
+            <button style="padding:7px 20px;border:1.5px solid #555;border-radius:20px;font-size:14px;font-weight:600;cursor:pointer;background:white;color:#555">Visit website</button>
+          </div>
+        </div>
+        <div class="company-name">HobbyOrigin</div>
+        <div class="company-tagline">Where Hobbies Build Communities — connecting every age, every neighbourhood, worldwide.</div>
+        <div class="company-meta">
+          <span class="company-meta-item">🏭 Technology, Information and Internet</span>
+          <span class="company-meta-item">·</span>
+          <span class="company-meta-item">📍 Bangalore, Karnataka, India</span>
+          <span class="company-meta-item">·</span>
+          <span class="company-meta-item">👥 1–10 employees</span>
+          <span class="company-meta-item">·</span>
+          <span class="company-meta-item">🔒 Privately Held</span>
+          <span class="company-meta-item">·</span>
+          <span class="pill">🌐 hobbyorigin.com</span>
+        </div>
+        <div class="company-follower-bar">
+          <span>1,240 followers</span>
+          <span style="color:#888">·</span>
+          <span>438 employees on LinkedIn</span>
+        </div>
+      </div>
+
+      <div class="company-nav">
+        <div class="company-nav-tabs">
+          <div class="cnav-tab active">Home</div>
+          <div class="cnav-tab">About</div>
+          <div class="cnav-tab">Posts</div>
+          <div class="cnav-tab">Jobs</div>
+          <div class="cnav-tab">People</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Post 1 — Launch -->
+    <div class="post-card">
+      <div class="post-header">
+        <div class="post-avatar">🔗</div>
+        <div class="post-meta">
+          <div class="post-meta-name">HobbyOrigin <span style="font-weight:400;color:#666">• Company Page</span></div>
+          <div class="post-meta-sub">Technology, Information and Internet · 1,240 followers</div>
+          <div class="post-time">Just now · 🌐</div>
+        </div>
+      </div>
+      <div class="post-body">
+        <div class="founder-badge">🚀 LAUNCH POST</div>
+        <p style="margin-bottom:10px">Today, I'm proud to announce <strong>HobbyOrigin</strong> — a community platform built to answer one question:</p>
+        <p style="margin-bottom:10px;font-style:italic;color:#555">Why do we have 25 million lonely people in the UK alone, when the person who shares your passion might live three floors below you?</p>
+        <p style="margin-bottom:10px">✅ Age-adaptive for <strong>kids, teens, adults, and seniors</strong><br/>
+        ✅ Hyper-local: finds people in <strong>your building first</strong><br/>
+        ✅ Real-time groups, events, tutoring, and a club shop<br/>
+        ✅ Available in UK 🇬🇧 · USA 🇺🇸 · India 🇮🇳</p>
+        <p>Built from <strong>Bangalore</strong>. Built for the world.</p>
+        <p style="margin-top:10px">👉 Join our waitlist: <span class="highlight">hobbyorigin.com</span></p>
+      </div>
+      <div class="post-tags">
+        <span class="post-tag">#HobbyOrigin</span>
+        <span class="post-tag">#CommunityBuilding</span>
+        <span class="post-tag">#SocialImpact</span>
+        <span class="post-tag">#TechForGood</span>
+        <span class="post-tag">#Bangalore</span>
+        <span class="post-tag">#Startup</span>
+      </div>
+      <div class="post-reactions">
+        <span>👍 ❤️ 🔥  <strong>248</strong></span>
+        <span>42 comments · 87 reposts</span>
+      </div>
+      <div class="post-actions">
+        <div class="post-action-btn">👍 Like</div>
+        <div class="post-action-btn">💬 Comment</div>
+        <div class="post-action-btn">🔄 Repost</div>
+        <div class="post-action-btn">📤 Send</div>
+      </div>
+    </div>
+
+    <!-- Post 2 — Founder -->
+    <div class="post-card">
+      <div class="post-header">
+        <div class="post-avatar">🔗</div>
+        <div class="post-meta">
+          <div class="post-meta-name">HobbyOrigin</div>
+          <div class="post-meta-sub">Technology, Information and Internet</div>
+          <div class="post-time">2d · 🌐</div>
+        </div>
+      </div>
+      <div class="post-body">
+        <div class="founder-badge">👤 FOUNDER STORY</div>
+        <p style="margin-bottom:10px"><strong>I had no idea how to code. Here's how I built a full-stack app anyway.</strong></p>
+        <p style="margin-bottom:10px">My name is <strong>Avika Garg</strong>. I live in Thubrahalli, Bangalore.</p>
+        <p style="margin-bottom:10px">I watched kids in my society play alone when there were other kids with the same interests one floor up. I watched seniors become invisible as life moved online.</p>
+        <p style="margin-bottom:10px">I had no technical background. No coding degree. No engineering co-founder.</p>
+        <p style="margin-bottom:10px">What I had: <strong>a very clear problem.</strong> And an AI I could describe it to precisely.</p>
+        <p style="margin-bottom:6px">In 90 days, using Claude (Anthropic AI), I built:</p>
+        <p style="color:#444">→ React web app + React Native mobile<br/>→ GraphQL API with real-time chat<br/>→ Virtual events, club shop, tutor tips, parental controls<br/>→ Support for UK 🇬🇧, USA 🇺🇸, India 🇮🇳</p>
+        <p style="margin-top:12px;font-style:italic;color:#555">"The barrier to building isn't technical skill. It's clarity of purpose."</p>
+      </div>
+      <div class="post-tags">
+        <span class="post-tag">#FounderStory</span>
+        <span class="post-tag">#BuildInPublic</span>
+        <span class="post-tag">#WomenInTech</span>
+        <span class="post-tag">#StartupIndia</span>
+      </div>
+      <div class="post-reactions">
+        <span>👍 ❤️ 💡  <strong>512</strong></span>
+        <span>96 comments · 143 reposts</span>
+      </div>
+      <div class="post-actions">
+        <div class="post-action-btn">👍 Like</div>
+        <div class="post-action-btn">💬 Comment</div>
+        <div class="post-action-btn">🔄 Repost</div>
+        <div class="post-action-btn">📤 Send</div>
+      </div>
+    </div>
+
+    <!-- Post 3 — Stats -->
+    <div class="post-card">
+      <div class="post-header">
+        <div class="post-avatar">🔗</div>
+        <div class="post-meta">
+          <div class="post-meta-name">HobbyOrigin</div>
+          <div class="post-time">4d · 🌐</div>
+        </div>
+      </div>
+      <div class="post-body">
+        <div class="founder-badge" style="background:#FFF7ED;border-color:#FED7AA;color:#92400E">📊 IMPACT</div>
+        <p style="margin-bottom:10px"><strong>1 in 5 children in the UK feel socially isolated. This is not a screen problem. It's a community design problem.</strong></p>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:14px 0;text-align:center">
+          <div style="background:#F3F2EF;border-radius:8px;padding:12px">
+            <div class="stat">1 in 5</div>
+            <div style="font-size:12px;color:#666;margin-top:4px">UK children lonely</div>
+          </div>
+          <div style="background:#F3F2EF;border-radius:8px;padding:12px">
+            <div class="stat">1.4M</div>
+            <div style="font-size:12px;color:#666;margin-top:4px">Seniors chronically lonely</div>
+          </div>
+          <div style="background:#F3F2EF;border-radius:8px;padding:12px">
+            <div class="stat">68%</div>
+            <div style="font-size:12px;color:#666;margin-top:4px">Don't know neighbours</div>
+          </div>
+        </div>
+        <p>HobbyOrigin is the design solution. <span class="highlight">#HobbyOrigin</span></p>
+      </div>
+      <div class="post-reactions">
+        <span>👍 ❤️ 😮  <strong>387</strong></span>
+        <span>68 comments · 201 reposts</span>
+      </div>
+      <div class="post-actions">
+        <div class="post-action-btn">👍 Like</div>
+        <div class="post-action-btn">💬 Comment</div>
+        <div class="post-action-btn">🔄 Repost</div>
+        <div class="post-action-btn">📤 Send</div>
+      </div>
+    </div>
+
+    <!-- About section -->
+    <div class="about-card">
+      <h3>About</h3>
+      <p>HobbyOrigin is a hyper-local community platform connecting people of all ages around shared hobbies — in their own building, street, and city.</p>
+      <p>We believe loneliness is a design problem. Our platform features age-adaptive design, hyper-local discovery, real-time group chat, virtual events, tutor tipping, club shops, campaign management, and parental controls.</p>
+      <p><strong>Available in the UK 🇬🇧, USA 🇺🇸, and India 🇮🇳.</strong> Supporting GBP, USD, and INR. Built in Bangalore by Avika Garg.</p>
+      <div class="about-detail-row"><span class="about-detail-icon">🌐</span><a href="https://hobbyorigin.com" style="color:#0A66C2">hobbyorigin.com</a></div>
+      <div class="about-detail-row"><span class="about-detail-icon">📍</span><span>Bangalore, Karnataka, India</span></div>
+      <div class="about-detail-row"><span class="about-detail-icon">📅</span><span>Founded 2026</span></div>
+      <div class="about-detail-row"><span class="about-detail-icon">📧</span><a href="mailto:ceo@hobbyorigin.com" style="color:#0A66C2">ceo@hobbyorigin.com</a></div>
+      <div style="margin-top:14px;font-size:13px;font-weight:600;color:#555;margin-bottom:8px">Specialities</div>
+      <div class="spec-list">
+        <span class="spec-tag">Community Building</span>
+        <span class="spec-tag">Social Networking</span>
+        <span class="spec-tag">Hobby Groups</span>
+        <span class="spec-tag">Loneliness Reduction</span>
+        <span class="spec-tag">EdTech & Tutoring</span>
+        <span class="spec-tag">Senior Wellbeing</span>
+        <span class="spec-tag">Parental Controls</span>
+        <span class="spec-tag">Virtual Events</span>
+        <span class="spec-tag">Club Commerce</span>
+        <span class="spec-tag">React & GraphQL</span>
+        <span class="spec-tag">Mobile App</span>
+        <span class="spec-tag">Startup Technology</span>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ═══════════════════ SIDEBAR ═══════════════════ -->
+  <aside class="li-sidebar">
+
+    <!-- People also viewed -->
+    <div class="sidebar-card">
+      <h4>People also viewed</h4>
+      <div class="people-row">
+        <div class="people-avatar" style="background:#0A66C2">N</div>
+        <div>
+          <div class="people-name">Nextdoor</div>
+          <div class="people-role">Social media · 890K followers</div>
+        </div>
+      </div>
+      <div class="people-row">
+        <div class="people-avatar" style="background:#10B981">M</div>
+        <div>
+          <div class="people-name">Meetup</div>
+          <div class="people-role">Software Development · 245K followers</div>
+        </div>
+      </div>
+      <div class="people-row">
+        <div class="people-avatar" style="background:#6366F1">C</div>
+        <div>
+          <div class="people-name">Circle</div>
+          <div class="people-role">Technology · 42K followers</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Promoted -->
+    <div class="ad-card">
+      <div class="ad-card-img">🔗</div>
+      <div class="ad-card-body">
+        <h5>HobbyOrigin — Seed Round Open</h5>
+        <p>We're raising £1.5M to connect communities worldwide. Join us.</p>
+        <button class="ad-follow" onclick="window.open('mailto:ceo@hobbyorigin.com?subject=Investor Enquiry — HobbyOrigin')">📩 Request Pitch Deck</button>
+        <div class="ad-note">ceo@hobbyorigin.com</div>
+      </div>
+    </div>
+
+    <!-- Avika's profile -->
+    <div class="sidebar-card">
+      <h4>Meet the Founder</h4>
+      <div class="people-row">
+        <div class="people-avatar" style="background:linear-gradient(135deg,#ec4899,#8b5cf6);font-size:20px">AG</div>
+        <div>
+          <div class="people-name">Avika Garg</div>
+          <div class="people-role">Founder & CEO · HobbyOrigin</div>
+          <div class="people-role" style="margin-top:2px">📍 Bangalore, India</div>
+          <button class="connect-btn" style="margin-top:6px">+ Connect</button>
+        </div>
+      </div>
+      <p style="font-size:13px;color:#555;margin-top:8px;line-height:1.5;font-style:italic">"Built a full-stack platform in 90 days with no coding background. Powered by clarity of purpose."</p>
+    </div>
+
+    <!-- Website link -->
+    <div class="sidebar-card" style="text-align:center">
+      <div style="font-size:28px;margin-bottom:8px">🌐</div>
+      <h4 style="margin-bottom:6px">Visit the Website</h4>
+      <p style="font-size:13px;color:#666;margin-bottom:12px">hobbyorigin.com</p>
+      <a href="https://hobbyorigin.com" target="_blank" style="display:block;padding:8px;background:#0A66C2;color:white;border-radius:20px;font-size:13px;font-weight:600;text-decoration:none">Visit hobbyorigin.com →</a>
+    </div>
+
+  </aside>
+</div>
+
+<div style="text-align:center;padding:32px;font-size:13px;color:#888">
+  This is a <strong>design mockup</strong> of the HobbyOrigin LinkedIn Company Page.<br/>
+  Open <a href="HobbyOrigin_LinkedIn_Playbook.docx" style="color:#0A66C2">HobbyOrigin_LinkedIn_Playbook.docx</a> for the full setup guide and ready-to-post content.
+</div>
+
+</body>
+</html>

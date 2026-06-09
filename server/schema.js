@@ -4,6 +4,10 @@ export const typeDefs = `#graphql
   enum ProductType { PHYSICAL DIGITAL }
   enum CampaignGoal { AWARENESS SIGNUPS DONATIONS }
   enum EventStatus { UPCOMING LIVE ENDED }
+  enum Currency { GBP USD INR }
+  enum SupportedLocale { en_GB en_US en_IN hi_IN }
+  enum ServiceType { CHARITY PAID BOTH }
+  enum BookingStatus { PENDING CONFIRMED CANCELLED COMPLETED }
 
   type Location {
     building: String
@@ -38,6 +42,8 @@ export const typeDefs = `#graphql
     theme: Theme!
     location: Location!
     language: String!
+    currency: String!
+    locale: String!
     joinedGroups: [Group!]!
     unreadCount: Int!
     tipsEarned: Int!
@@ -154,6 +160,54 @@ export const typeDefs = `#graphql
     createdAt: String!
   }
 
+  type Expert {
+    id: ID!
+    user: User!
+    headline: String!
+    bio: String!
+    skills: [String!]!
+    serviceType: ServiceType!
+    hourlyRate: Int!
+    currency: String!
+    languages: [String!]!
+    countries: [String!]!
+    isElderSupport: Boolean!
+    isVerified: Boolean!
+    ratingAvg: Float
+    ratingCount: Int!
+    totalSessions: Int!
+    availability: String!
+    reviews: [ExpertReview!]!
+    createdAt: String!
+  }
+
+  type ExpertReview {
+    id: ID!
+    expertId: ID!
+    userId: ID!
+    bookingId: ID!
+    rating: Int!
+    comment: String!
+    reviewer: User!
+    createdAt: String!
+  }
+
+  type ExpertBooking {
+    id: ID!
+    expert: Expert!
+    user: User!
+    skill: String!
+    serviceType: ServiceType!
+    scheduledAt: String!
+    durationMins: Int!
+    amount: Int!
+    currency: String!
+    status: BookingStatus!
+    notes: String!
+    meetingUrl: String!
+    createdAt: String!
+  }
+
   type Wallet {
     userId: ID!
     coins: Int!
@@ -170,12 +224,17 @@ export const typeDefs = `#graphql
     groupEvents(groupId: ID!): [Event!]!
     groupProducts(groupId: ID!): [Product!]!
     groupCampaigns(groupId: ID!): [Campaign!]!
+    searchExperts(skill: String, isElderSupport: Boolean, country: String, serviceType: ServiceType): [Expert!]!
+    expert(id: ID!): Expert
+    myExpertProfile: Expert
+    myBookings: [ExpertBooking!]!
+    expertBookings: [ExpertBooking!]!
   }
 
   type Mutation {
-    register(name: String!, email: String!, password: String!, age: Int, city: String, country: String, building: String, neighborhood: String): AuthPayload!
+    register(name: String!, email: String!, password: String!, age: Int, city: String, country: String, building: String, neighborhood: String, currency: String, locale: String): AuthPayload!
     login(email: String!, password: String!): AuthPayload!
-    updateProfile(bio: String, interests: [String!], age: Int, building: String, neighborhood: String, city: String, country: String, language: String, theme: Theme): User!
+    updateProfile(bio: String, interests: [String!], age: Int, building: String, neighborhood: String, city: String, country: String, language: String, theme: Theme, currency: String, locale: String): User!
     createGroup(name: String!, description: String!, category: String!, tags: [String!], maxMembers: Int!, ageGroups: [AgeGroup!], city: String, building: String, neighborhood: String, scheduleDay: String, scheduleTime: String, scheduleFrequency: String, scheduleDuration: Int): Group!
     joinGroup(groupId: ID!): Group!
     leaveGroup(groupId: ID!): Group!
@@ -190,6 +249,13 @@ export const typeDefs = `#graphql
     createCampaign(groupId: ID!, title: String!, goal: CampaignGoal, description: String, targetAgeGroups: [AgeGroup!], targetCity: String, startDate: String!, endDate: String!): Campaign!
     addCoins(userId: ID!, amount: Int!): Wallet!
     linkChild(childEmail: String!): User!
+    registerAsExpert(headline: String!, bio: String, skills: [String!]!, serviceType: ServiceType, hourlyRate: Int, currency: String, languages: [String!], countries: [String!], isElderSupport: Boolean, availability: String): Expert!
+    updateExpertProfile(headline: String, bio: String, skills: [String!], serviceType: ServiceType, hourlyRate: Int, currency: String, languages: [String!], countries: [String!], isElderSupport: Boolean, availability: String): Expert!
+    bookExpert(expertId: ID!, skill: String!, serviceType: ServiceType, scheduledAt: String!, durationMins: Int, notes: String): ExpertBooking!
+    confirmBooking(bookingId: ID!, meetingUrl: String): ExpertBooking!
+    cancelBooking(bookingId: ID!): ExpertBooking!
+    completeBooking(bookingId: ID!): ExpertBooking!
+    reviewExpert(expertId: ID!, bookingId: ID!, rating: Int!, comment: String): Expert!
   }
 
   type Subscription {

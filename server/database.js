@@ -24,6 +24,8 @@ db.exec(`
     city TEXT DEFAULT '',
     country TEXT DEFAULT '',
     language TEXT DEFAULT 'en',
+    currency TEXT DEFAULT 'GBP',
+    locale TEXT DEFAULT 'en-GB',
     notification_prefs TEXT DEFAULT '{"session_reminder":true,"new_member":true,"new_buddy":true}',
     created_at TEXT NOT NULL
   );
@@ -175,7 +177,66 @@ db.exec(`
     FOREIGN KEY (parent_id) REFERENCES users(id),
     FOREIGN KEY (child_id) REFERENCES users(id)
   );
+
+  CREATE TABLE IF NOT EXISTS experts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL UNIQUE,
+    headline TEXT DEFAULT '',
+    bio TEXT DEFAULT '',
+    skills TEXT DEFAULT '[]',
+    service_type TEXT DEFAULT 'BOTH',
+    hourly_rate INTEGER DEFAULT 0,
+    currency TEXT DEFAULT 'GBP',
+    languages TEXT DEFAULT '["en"]',
+    countries TEXT DEFAULT '[]',
+    is_elder_support INTEGER DEFAULT 0,
+    rating_sum INTEGER DEFAULT 0,
+    rating_count INTEGER DEFAULT 0,
+    total_sessions INTEGER DEFAULT 0,
+    is_verified INTEGER DEFAULT 0,
+    availability TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS expert_bookings (
+    id TEXT PRIMARY KEY,
+    expert_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    skill TEXT NOT NULL,
+    service_type TEXT DEFAULT 'PAID',
+    scheduled_at TEXT NOT NULL,
+    duration_mins INTEGER DEFAULT 60,
+    amount INTEGER DEFAULT 0,
+    currency TEXT DEFAULT 'GBP',
+    status TEXT DEFAULT 'PENDING',
+    notes TEXT DEFAULT '',
+    meeting_url TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (expert_id) REFERENCES experts(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS expert_reviews (
+    id TEXT PRIMARY KEY,
+    expert_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    booking_id TEXT NOT NULL,
+    rating INTEGER NOT NULL,
+    comment TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (expert_id) REFERENCES experts(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
 `);
+
+// ── Migrations — add columns that may not exist in older DBs ─────────────────
+const runMigration = (sql) => { try { db.exec(sql); } catch (_) {} };
+runMigration(`ALTER TABLE users ADD COLUMN currency TEXT DEFAULT 'GBP'`);
+runMigration(`ALTER TABLE users ADD COLUMN locale TEXT DEFAULT 'en-GB'`);
+runMigration(`ALTER TABLE experts ADD COLUMN is_elder_support INTEGER DEFAULT 0`);
+runMigration(`ALTER TABLE experts ADD COLUMN languages TEXT DEFAULT '["en"]'`);
+runMigration(`ALTER TABLE experts ADD COLUMN countries TEXT DEFAULT '[]'`);
 
 // ── USER ──────────────────────────────────────────────────────────────────────
 
@@ -187,14 +248,14 @@ export function getUserByEmail(email) {
   return db.prepare('SELECT * FROM users WHERE email = ?').get(email);
 }
 export function createUser(data) {
-  const { id, name, email, password, avatarColor, age, ageGroup, theme, createdAt } = data;
+  const { id, name, email, password, avatarColor, age, ageGroup, theme, currency, locale, createdAt } = data;
   db.prepare(
-    'INSERT INTO users (id,name,email,password,avatar_color,age,age_group,theme,created_at) VALUES (?,?,?,?,?,?,?,?,?)'
-  ).run(id, name, email, password, avatarColor, age, ageGroup, theme, createdAt);
+    'INSERT INTO users (id,name,email,password,avatar_color,age,age_group,theme,currency,locale,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, name, email, password, avatarColor, age, ageGroup, theme, currency||'GBP', locale||'en-GB', createdAt);
   return getUser(id);
 }
 export function updateUser(id, fields) {
-  const allowed = ['bio', 'interests', 'age', 'age_group', 'theme', 'building', 'neighborhood', 'city', 'country', 'language', 'notification_prefs'];
+  const allowed = ['bio', 'interests', 'age', 'age_group', 'theme', 'building', 'neighborhood', 'city', 'country', 'language', 'currency', 'locale', 'notification_prefs'];
   const map = { interests: v => JSON.stringify(v), notification_prefs: v => JSON.stringify(v) };
   for (const [k, v] of Object.entries(fields)) {
     if (!allowed.includes(k) || v === undefined) continue;
@@ -370,6 +431,78 @@ export function getGroupCampaigns(groupId) {
   return db.prepare('SELECT * FROM campaigns WHERE group_id=? ORDER BY created_at DESC').all(groupId).map(fmt.campaign);
 }
 
+// ── EXPERTS ───────────────────────────────────────────────────────────────────
+
+export function registerExpert({ id, userId, headline, bio, skills, serviceType, hourlyRate, currency, languages, countries, isElderSupport, availability }) {
+  const now = new Date().toISOString();
+  db.prepare(
+    'INSERT INTO experts (id,user_id,headline,bio,skills,service_type,hourly_rate,currency,languages,countries,is_elder_support,availability,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, userId, headline||'', bio||'', JSON.stringify(skills||[]), serviceType||'BOTH', hourlyRate||0, currency||'GBP', JSON.stringify(languages||['en']), JSON.stringify(countries||[]), isElderSupport?1:0, availability||'', now);
+  return getExpert(id);
+}
+export function getExpert(id) {
+  const e = db.prepare('SELECT * FROM experts WHERE id=?').get(id);
+  return e ? fmt.expert(e) : null;
+}
+export function getExpertByUser(userId) {
+  const e = db.prepare('SELECT * FROM experts WHERE user_id=?').get(userId);
+  return e ? fmt.expert(e) : null;
+}
+export function updateExpert(id, fields) {
+  const allowed = ['headline','bio','skills','service_type','hourly_rate','currency','languages','countries','is_elder_support','availability','is_verified'];
+  const map = { skills: v => JSON.stringify(v), languages: v => JSON.stringify(v), countries: v => JSON.stringify(v) };
+  for (const [k, v] of Object.entries(fields)) {
+    if (!allowed.includes(k) || v === undefined) continue;
+    const val = map[k] ? map[k](v) : v;
+    db.prepare(`UPDATE experts SET ${k} = ? WHERE id = ?`).run(val, id);
+  }
+  return getExpert(id);
+}
+export function searchExperts({ skill, isElderSupport, country, serviceType, limit = 50 } = {}) {
+  let rows = db.prepare('SELECT * FROM experts').all();
+  if (skill) rows = rows.filter(e => {
+    const skills = JSON.parse(e.skills || '[]');
+    return skills.some(s => s.toLowerCase().includes(skill.toLowerCase()));
+  });
+  if (isElderSupport) rows = rows.filter(e => e.is_elder_support === 1);
+  if (country) rows = rows.filter(e => {
+    const countries = JSON.parse(e.countries || '[]');
+    return countries.length === 0 || countries.includes(country);
+  });
+  if (serviceType && serviceType !== 'BOTH') rows = rows.filter(e => e.service_type === serviceType || e.service_type === 'BOTH');
+  return rows.slice(0, limit).map(fmt.expert);
+}
+
+export function createBooking({ id, expertId, userId, skill, serviceType, scheduledAt, durationMins, amount, currency, notes }) {
+  db.prepare(
+    'INSERT INTO expert_bookings (id,expert_id,user_id,skill,service_type,scheduled_at,duration_mins,amount,currency,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+  ).run(id, expertId, userId, skill, serviceType||'PAID', scheduledAt, durationMins||60, amount||0, currency||'GBP', notes||'', new Date().toISOString());
+  return getBooking(id);
+}
+export function getBooking(id) {
+  const b = db.prepare('SELECT * FROM expert_bookings WHERE id=?').get(id);
+  return b ? fmt.booking(b) : null;
+}
+export function getUserBookings(userId) {
+  return db.prepare('SELECT * FROM expert_bookings WHERE user_id=? ORDER BY scheduled_at ASC').all(userId).map(fmt.booking);
+}
+export function getExpertBookings(expertId) {
+  return db.prepare('SELECT * FROM expert_bookings WHERE expert_id=? ORDER BY scheduled_at ASC').all(expertId).map(fmt.booking);
+}
+export function updateBookingStatus(id, status, meetingUrl) {
+  db.prepare('UPDATE expert_bookings SET status=?, meeting_url=? WHERE id=?').run(status, meetingUrl||'', id);
+  return getBooking(id);
+}
+
+export function createReview({ id, expertId, userId, bookingId, rating, comment }) {
+  db.prepare('INSERT INTO expert_reviews (id,expert_id,user_id,booking_id,rating,comment,created_at) VALUES (?,?,?,?,?,?,?)').run(id, expertId, userId, bookingId, rating, comment||'', new Date().toISOString());
+  db.prepare('UPDATE experts SET rating_sum=rating_sum+?, rating_count=rating_count+1, total_sessions=total_sessions+1 WHERE id=?').run(rating, expertId);
+  return getExpert(expertId);
+}
+export function getExpertReviews(expertId) {
+  return db.prepare('SELECT * FROM expert_reviews WHERE expert_id=? ORDER BY created_at DESC LIMIT 20').all(expertId);
+}
+
 // ── WALLET ────────────────────────────────────────────────────────────────────
 
 export function getWallet(userId) {
@@ -399,6 +532,8 @@ const fmt = {
     interests: JSON.parse(u.interests || '[]'),
     avatarColor: u.avatar_color,
     ageGroup: u.age_group,
+    currency: u.currency || 'GBP',
+    locale: u.locale || 'en-GB',
     notificationPrefs: JSON.parse(u.notification_prefs || '{}'),
     createdAt: u.created_at,
   }),
@@ -419,6 +554,31 @@ const fmt = {
   event: e => ({ ...e, groupId: e.group_id, creatorId: e.creator_id, videoUrl: e.video_url, startsAt: e.starts_at, durationMins: e.duration_mins, ticketPrice: e.ticket_price, createdAt: e.created_at }),
   product: p => ({ ...p, groupId: p.group_id, creatorId: p.creator_id, productType: p.product_type, imageEmoji: p.image_emoji, createdAt: p.created_at }),
   campaign: c => ({ ...c, groupId: c.group_id, creatorId: c.creator_id, targetAgeGroups: JSON.parse(c.target_age_groups || '[]'), targetCity: c.target_city, startDate: c.start_date, endDate: c.end_date, createdAt: c.created_at }),
+  expert: e => ({
+    ...e,
+    userId: e.user_id,
+    skills: JSON.parse(e.skills || '[]'),
+    serviceType: e.service_type,
+    hourlyRate: e.hourly_rate,
+    languages: JSON.parse(e.languages || '["en"]'),
+    countries: JSON.parse(e.countries || '[]'),
+    isElderSupport: !!e.is_elder_support,
+    isVerified: !!e.is_verified,
+    ratingAvg: e.rating_count > 0 ? Math.round((e.rating_sum / e.rating_count) * 10) / 10 : null,
+    ratingCount: e.rating_count,
+    totalSessions: e.total_sessions,
+    createdAt: e.created_at,
+  }),
+  booking: b => ({
+    ...b,
+    expertId: b.expert_id,
+    userId: b.user_id,
+    serviceType: b.service_type,
+    scheduledAt: b.scheduled_at,
+    durationMins: b.duration_mins,
+    meetingUrl: b.meeting_url,
+    createdAt: b.created_at,
+  }),
 };
 
 export default db;
