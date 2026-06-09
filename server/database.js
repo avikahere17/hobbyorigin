@@ -522,8 +522,17 @@ export async function assignGroupAdmin(groupId, userId) {
   return getGroup(groupId);
 }
 export async function getUserGroups(userId) {
-  const { rows } = await query('SELECT g.* FROM groups g JOIN group_members gm ON g.id=gm.group_id WHERE gm.user_id=$1 ORDER BY gm.joined_at DESC', [userId]);
-  return rows.map(fmt.group);
+  const { rows } = await query(
+    `SELECT g.*, COUNT(gm2.user_id)::int AS member_count
+     FROM groups g
+     JOIN group_members gm ON g.id = gm.group_id
+     LEFT JOIN group_members gm2 ON g.id = gm2.group_id
+     WHERE gm.user_id = $1
+     GROUP BY g.id
+     ORDER BY gm.joined_at DESC`,
+    [userId]
+  );
+  return rows.map(r => ({ ...fmt.group(r), memberCount: r.member_count || 0 }));
 }
 
 // ── MESSAGES ──────────────────────────────────────────────────────────────────

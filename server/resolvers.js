@@ -87,7 +87,13 @@ async function resolveUser(u) {
       ...u,
       role: u.role || 'USER',
       location: { building: u.building||'', neighborhood: u.neighborhood||'', city: u.city||'', country: u.country||'', lat: u.lat||null, lng: u.lng||null },
-      joinedGroups: groups,
+      joinedGroups: groups.map(g => ({
+        ...g,
+        memberCount: g.memberCount ?? 0,
+        isOpen: (g.memberCount ?? 0) < (g.maxMembers ?? 10),
+        isPrivate: !!g.isPrivate,
+        isGroupAdmin: false, // not computed for joinedGroups list — use group detail query for that
+      })),
       unreadCount: unread,
       tipsEarned: tips,
       walletCoins: wallet.coins,
