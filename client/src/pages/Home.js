@@ -85,6 +85,27 @@ export default function Home({ onAuthRequired }) {
   if (filter==='joined') groups = groups.filter(g=>g.isMember);
   if (currentUser?.ageGroup && filter==='mine') groups = groups.filter(g=>g.ageGroups?.includes(currentUser.ageGroup));
 
+  // Smart categorization: joined > location match > interest match > rest
+  if (currentUser && filter === 'all' && !search && category === 'All') {
+    const userCity = currentUser?.location?.city?.toLowerCase() || '';
+    const userBuilding = currentUser?.location?.building?.toLowerCase() || '';
+    const userInterests = (currentUser?.interests || []).map(i => i.toLowerCase());
+    groups = [...groups].sort((a, b) => {
+      const score = g => {
+        if (g.isMember) return 4;
+        const gCity = (g.location?.city || '').toLowerCase();
+        const gBuilding = (g.location?.building || '').toLowerCase();
+        const nearBy = (userBuilding && gBuilding && gBuilding === userBuilding) || (userCity && gCity && gCity === userCity);
+        if (nearBy) return 3;
+        const tags = [...(g.tags || []), g.category || ''].map(t => t.toLowerCase());
+        const hasInterest = userInterests.some(i => tags.some(t => t.includes(i) || i.includes(t)));
+        if (hasInterest) return 2;
+        return 1;
+      };
+      return score(b) - score(a);
+    });
+  }
+
   const isKids = currentUser?.ageGroup === 'KIDS';
   const isSenior = currentUser?.ageGroup === 'SENIORS';
 
@@ -170,11 +191,57 @@ export default function Home({ onAuthRequired }) {
             {currentUser && <button className="btn btn-primary" style={{marginTop:16}} onClick={()=>setShowCreate(true)}>{isKids?'Start a group! 🎉':'Create a Group'}</button>}
           </div>
         )}
-        {!loading && groups.length>0 && (
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))',gap:16}}>
-            {groups.map(g=><GroupCard key={g.id} group={g} onAuthRequired={()=>onAuthRequired('register')} />)}
-          </div>
-        )}
+        {!loading && groups.length>0 && (() => {
+          // Smart section dividers when using smart sort
+          const userCity = currentUser?.location?.city?.toLowerCase() || '';
+          const userBuilding = currentUser?.location?.building?.toLowerCase() || '';
+          const userInterests = (currentUser?.interests || []).map(i => i.toLowerCase());
+          const smartSort = currentUser && filter === 'all' && !search && category === 'All';
+
+          const getSection = g => {
+            if (!smartSort) return null;
+            if (g.isMember) return 'joined';
+            const gCity = (g.location?.city || '').toLowerCase();
+            const gBuilding = (g.location?.building || '').toLowerCase();
+            const nearBy = (userBuilding && gBuilding && gBuilding === userBuilding) || (userCity && gCity && gCity === userCity);
+            if (nearBy) return 'nearby';
+            const tags = [...(g.tags || []), g.category || ''].map(t => t.toLowerCase());
+            const hasInterest = userInterests.some(i => tags.some(t => t.includes(i) || i.includes(t)));
+            if (hasInterest) return 'interests';
+            return 'other';
+          };
+
+          const SECTION_LABELS = {
+            joined: { icon: '✅', label: 'Your Groups', color: 'var(--primary)' },
+            nearby: { icon: '📍', label: 'Near You', color: '#10b981' },
+            interests: { icon: '💡', label: 'Based on Your Interests', color: '#f97316' },
+            other: { icon: '🌐', label: 'Explore More', color: 'var(--text-muted)' },
+          };
+
+          let lastSection = null;
+          const items = [];
+          groups.forEach((g, i) => {
+            const sec = getSection(g);
+            if (sec && sec !== lastSection) {
+              lastSection = sec;
+              const { icon, label, color } = SECTION_LABELS[sec];
+              items.push(
+                <div key={`sec-${sec}`} style={{gridColumn:'1/-1',display:'flex',alignItems:'center',gap:10,marginTop:i>0?16:0}}>
+                  <span style={{fontSize:18}}>{icon}</span>
+                  <span style={{fontWeight:700,color,fontSize:'var(--font-base)'}}>{label}</span>
+                  <div style={{flex:1,height:2,background:'var(--border)',borderRadius:2}}/>
+                </div>
+              );
+            }
+            items.push(<GroupCard key={g.id} group={g} onAuthRequired={()=>onAuthRequired('register')} />);
+          });
+
+          return (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))',gap:16}}>
+              {items}
+            </div>
+          );
+        })()}
       </div>
 
       {showCreate && <CreateGroupModal onClose={()=>setShowCreate(false)} />}

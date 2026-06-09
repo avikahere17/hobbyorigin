@@ -5,6 +5,7 @@ import { GraphQLError } from 'graphql';
 import {
   getUser, getUserByEmail, createUser, updateUser, findFolks, setUserRole, getAdminStats, getAdminUsers,
   getGroup, getGroups, createGroup, getGroupMembers, getMemberCount, isMember, joinGroup, leaveGroup, getUserGroups,
+  deleteGroup as dbDeleteGroup, makeGroupPrivate as dbMakeGroupPrivate, assignGroupAdmin as dbAssignGroupAdmin,
   getGroupMessages, createMessage,
   createNotification, getUserNotifications, markNotificationsRead, getUnreadCount, getBuddyStatus, sendBuddyRequest,
   sendTip as dbSendTip, getTipsTotal,
@@ -126,6 +127,8 @@ async function resolveGroup(g, userId) {
     members: await Promise.all(members.map(m => resolveUser(m))),
     isOpen: count < g.maxMembers,
     isMember: memberCheck,
+    isPrivate: !!g.isPrivate,
+    isGroupAdmin: userId ? (userId === (g.adminId || g.creatorId)) : false,
     isSeeded: !!g.isSeeded,
     creator: creator ? await resolveUser(creator) : { id: g.creatorId, name: 'HobbyOrigin', avatarColor: '#6366f1', ageGroup: 'ADULTS', role: 'ADMIN', bio: '', interests: [], theme: 'STANDARD', language: 'en', currency: 'GBP', locale: 'en-GB', joinedGroups: [], unreadCount: 0, tipsEarned: 0, walletCoins: 0, children: [], createdAt: g.createdAt, location: { building:'', neighborhood:'', city:'', country:'', lat:null, lng:null } },
     messages: await Promise.all(messages.map(async m => {
@@ -270,7 +273,7 @@ export const resolvers = {
     },
 
     groups: async (_, args, { user }) => {
-      const groups = await getGroups(args);
+      const groups = await getGroups({ ...args, userId: user?.id });
       return Promise.all(groups.map(g => resolveGroup(g, user?.id)));
     },
 
@@ -456,6 +459,77 @@ export const resolvers = {
       const r = await resolveGroup(await getGroup(groupId), user.id);
       if (pubsub) pubsub.publish(`GROUP_MEMBER_CHANGED_${groupId}`, { groupMemberChanged: r });
       return r;
+    },
+
+    deleteGroup: async (_, { groupId }, { user }) => {
+      requireAuth(user);
+      const group = await getGroup(groupId);
+      if (!group) throw new GraphQLError('Group not found');
+      const isAdmin = user.role === 'ADMIN';
+      const isGroupAdmin = user.id === (group.adminId || group.creatorId);
+      if (!isAdmin && !isGroupAdmin) throw new GraphQLError('Only the group admin can delete this group');
+      await dbDeleteGroup(groupId);
+      return true;
+    },
+
+    makeGroupPrivate: async (_, { groupId, isPrivate }, { user, pubsub }) => {
+      requireAuth(user);
+      const group = await getGroup(groupId);
+      if (!group) throw new GraphQLError('Group not found');
+      const isAdmin = user.role === 'ADMIN';
+      const isGroupAdmin = user.id === (group.adminId || group.creatorId);
+      if (!isAdmin && !isGroupAdmin) throw new GraphQLError('Only the group admin can change group visibility');
+      const updated = await dbMakeGroupPrivate(groupId, isPrivate);
+      const r = await resolveGroup(updated, user.id);
+      if (pubsub) pubsub.publish(`GROUP_MEMBER_CHANGED_${groupId}`, { groupMemberChanged: r });
+      return r;
+    },
+
+    assignGroupAdmin: async (_, { groupId, userId: newAdminId }, { user, pubsub }) => {
+      requireAuth(user);
+      const group = await getGroup(groupId);
+      if (!group) throw new GraphQLError('Group not found');
+      const isAdmin = user.role === 'ADMIN';
+      const isGroupAdmin = user.id === (group.adminId || group.creatorId);
+      if (!isAdmin && !isGroupAdmin) throw new GraphQLError('Only the group admin can assign a new admin');
+      const newAdmin = await getUser(newAdminId);
+      if (!newAdmin) throw new GraphQLError('User not found');
+      const memberCheck = await isMember(groupId, newAdminId);
+      if (!memberCheck) throw new GraphQLError('New admin must be a group member');
+      const updated = await dbAssignGroupAdmin(groupId, newAdminId);
+      return resolveGroup(updated, user.id);
+    },
+
+    createPaymentIntent: async (_, { amount, currency = 'gbp', description = 'HobbyOrigin payment' }, { user }) => {
+      requireAuth(user);
+      if (amount < 50) throw new GraphQLError('Minimum amount is 50 pence / cents');
+      // Use Stripe if configured, otherwise return a mock for development
+      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      if (stripeKey) {
+        const stripe = (await import('stripe')).default(stripeKey);
+        const pi = await stripe.paymentIntents.create({
+          amount,
+          currency: currency.toLowerCase(),
+          description,
+          metadata: { userId: user.id },
+          automatic_payment_methods: { enabled: true },
+        });
+        return { clientSecret: pi.client_secret, paymentIntentId: pi.id, amount, currency };
+      }
+      // Dev/test mode: return a mock intent
+      return { clientSecret: `pi_mock_${uuid()}_secret_mock`, paymentIntentId: `pi_mock_${uuid()}`, amount, currency };
+    },
+
+    confirmTipPayment: async (_, { paymentIntentId, toUserId, groupId, amount, message }, { user, pubsub }) => {
+      requireAuth(user);
+      if (user.id === toUserId) throw new GraphQLError('You cannot tip yourself');
+      const toUser = await getUser(toUserId);
+      if (!toUser) throw new GraphQLError('Recipient not found');
+      // In production: verify paymentIntent status with Stripe
+      // For now: record tip (coin equivalent: 1 coin = 1p)
+      const tip = await dbSendTip({ id: uuid(), fromId: user.id, toId: toUserId, groupId: groupId || null, amount, message: message || '', createdAt: new Date().toISOString() });
+      await addCoins(toUserId, amount);
+      return tip;
     },
 
     sendMessage: async (_, { groupId, content, messageType, videoUrl }, { user, pubsub }) => {

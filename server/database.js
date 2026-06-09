@@ -340,6 +340,8 @@ export async function initDB() {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'en'`,
     // groups: is_seeded added after initial launch
     `ALTER TABLE groups ADD COLUMN IF NOT EXISTS is_seeded BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE groups ADD COLUMN IF NOT EXISTS is_private BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE groups ADD COLUMN IF NOT EXISTS admin_id TEXT DEFAULT NULL`,
     // experts: all columns (table may predate some fields)
     `ALTER TABLE experts ADD COLUMN IF NOT EXISTS is_elder_support BOOLEAN DEFAULT FALSE`,
     `ALTER TABLE experts ADD COLUMN IF NOT EXISTS availability TEXT DEFAULT 'Flexible'`,
@@ -462,15 +464,18 @@ export async function getGroup(id) {
   const { rows } = await query('SELECT * FROM groups WHERE id = $1', [id]);
   return rows[0] ? fmt.group(rows[0]) : null;
 }
-export async function getGroups({ category, search, city, building, ageGroup } = {}) {
-  let q = 'SELECT * FROM groups WHERE 1=1';
-  const p = [];
-  let idx = 1;
-  if (category && category !== 'All') { q += ` AND category = $${idx++}`; p.push(category); }
-  if (search) { q += ` AND (name ILIKE $${idx} OR description ILIKE $${idx++})`; p.push(`%${search}%`); }
-  if (city) { q += ` AND (city = $${idx++} OR city = '')`; p.push(city); }
-  if (building) { q += ` AND (building = $${idx++} OR building = '')`; p.push(building); }
-  q += ' ORDER BY created_at DESC';
+export async function getGroups({ category, search, city, building, ageGroup, userId } = {}) {
+  // Exclude private groups unless the requesting user is a member or creator
+  let q = userId
+    ? `SELECT g.* FROM groups g WHERE (g.is_private IS NOT TRUE OR g.creator_id=$1 OR g.admin_id=$1 OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=g.id AND gm.user_id=$1))`
+    : 'SELECT * FROM groups WHERE (is_private IS NOT TRUE OR is_private IS NULL)';
+  const p = userId ? [userId] : [];
+  let idx = p.length + 1;
+  if (category && category !== 'All') { q += ` AND ${userId?'g.':''}category = $${idx++}`; p.push(category); }
+  if (search) { q += ` AND (${userId?'g.':''}name ILIKE $${idx} OR ${userId?'g.':''}description ILIKE $${idx++})`; p.push(`%${search}%`); }
+  if (city) { q += ` AND (${userId?'g.':''}city = $${idx++} OR ${userId?'g.':''}city = '')`; p.push(city); }
+  if (building) { q += ` AND (${userId?'g.':''}building = $${idx++} OR ${userId?'g.':''}building = '')`; p.push(building); }
+  q += ` ORDER BY ${userId?'g.':''}created_at DESC`;
   const { rows } = await query(q, p);
   let list = rows.map(fmt.group);
   if (ageGroup) list = list.filter(g => g.ageGroups.includes(ageGroup) || g.ageGroups.length === 0);
@@ -503,6 +508,17 @@ export async function joinGroup(groupId, userId) {
 }
 export async function leaveGroup(groupId, userId) {
   await query('DELETE FROM group_members WHERE group_id=$1 AND user_id=$2', [groupId, userId]);
+  return getGroup(groupId);
+}
+export async function deleteGroup(groupId) {
+  await query('DELETE FROM groups WHERE id=$1', [groupId]);
+}
+export async function makeGroupPrivate(groupId, isPrivate) {
+  await query('UPDATE groups SET is_private=$1 WHERE id=$2', [isPrivate, groupId]);
+  return getGroup(groupId);
+}
+export async function assignGroupAdmin(groupId, userId) {
+  await query('UPDATE groups SET admin_id=$1 WHERE id=$2', [userId, groupId]);
   return getGroup(groupId);
 }
 export async function getUserGroups(userId) {
@@ -906,6 +922,8 @@ const fmt = {
     scheduleFrequency: g.schedule_frequency,
     scheduleDuration: g.schedule_duration,
     isSeeded: !!g.is_seeded,
+    isPrivate: !!g.is_private,
+    adminId: g.admin_id || g.creator_id,
     createdAt: g.created_at,
   }),
   message: m => ({ ...m, senderId: m.sender_id, groupId: m.group_id, messageType: m.message_type || 'TEXT', videoUrl: m.video_url || '', createdAt: m.created_at }),

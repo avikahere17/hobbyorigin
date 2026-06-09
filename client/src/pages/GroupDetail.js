@@ -10,6 +10,7 @@ import {
   GROUP_QUERY, JOIN_GROUP_MUTATION, LEAVE_GROUP_MUTATION, GROUP_MEMBER_SUBSCRIPTION,
   SEND_TIP_MUTATION, REGISTER_FOR_EVENT_MUTATION, UNREGISTER_FROM_EVENT_MUTATION,
   CREATE_EVENT_MUTATION, CREATE_PRODUCT_MUTATION, CREATE_CAMPAIGN_MUTATION,
+  DELETE_GROUP_MUTATION, MAKE_GROUP_PRIVATE_MUTATION, ASSIGN_GROUP_ADMIN_MUTATION,
 } from '../graphql';
 import { formatCurrency, formatTicketPrice } from '../utils/currency';
 
@@ -175,11 +176,17 @@ export default function GroupDetail({ onAuthRequired }) {
   const [showCreateEvent, setShowCreateEvent] = useState(false);
   const [showCreateProduct, setShowCreateProduct] = useState(false);
   const [showCreateCampaign, setShowCreateCampaign] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [meetWidget, setMeetWidget] = useState(null); // { url, title }
+  const navigate = useNavigate();
 
   const { data, loading, error, updateQuery, refetch } = useQuery(GROUP_QUERY, { variables: { id }, fetchPolicy: 'cache-and-network' });
 
   const [joinGroup, { loading: joining }] = useMutation(JOIN_GROUP_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
   const [leaveGroup, { loading: leaving }] = useMutation(LEAVE_GROUP_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
+  const [deleteGroupMut] = useMutation(DELETE_GROUP_MUTATION);
+  const [makeGroupPrivateMut] = useMutation(MAKE_GROUP_PRIVATE_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
+  const [assignGroupAdminMut] = useMutation(ASSIGN_GROUP_ADMIN_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
   const [registerForEvent] = useMutation(REGISTER_FOR_EVENT_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
   const [unregisterFromEvent] = useMutation(UNREGISTER_FROM_EVENT_MUTATION, { refetchQueries: [{ query: GROUP_QUERY, variables: { id } }] });
 
@@ -202,6 +209,7 @@ export default function GroupDetail({ onAuthRequired }) {
   const group = data.group;
   const pct = (group.memberCount / group.maxMembers) * 100;
   const isCreator = group.creator.id === currentUser?.id;
+  const isGroupAdmin = group.isGroupAdmin || isCreator || currentUser?.role === 'ADMIN';
 
   const handleJoin = async () => {
     if (!currentUser) { onAuthRequired(); return; }
@@ -211,6 +219,17 @@ export default function GroupDetail({ onAuthRequired }) {
     if (!window.confirm('Leave this group?')) return;
     try { await leaveGroup({ variables: { groupId: id } }); } catch (e) { alert(e.message); }
   };
+  const handleDeleteGroup = async () => {
+    if (!window.confirm(`Permanently delete "${group.name}"? This cannot be undone.`)) return;
+    try { await deleteGroupMut({ variables: { groupId: id } }); navigate('/'); } catch (e) { alert(e.message); }
+  };
+  const handleTogglePrivate = async () => {
+    try { await makeGroupPrivateMut({ variables: { groupId: id, isPrivate: !group.isPrivate } }); } catch (e) { alert(e.message); }
+  };
+  const handleAssignAdmin = async (userId) => {
+    try { await assignGroupAdminMut({ variables: { groupId: id, userId } }); alert('Admin assigned!'); } catch (e) { alert(e.message); }
+  };
+  const openMeetWidget = (url, title) => setMeetWidget({ url, title });
 
   return (
     <div className="page" style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -224,6 +243,7 @@ export default function GroupDetail({ onAuthRequired }) {
                 <span style={{ color: 'var(--text-dim)' }}>/</span>
                 <span className="badge badge-primary">{group.category}</span>
                 <span className={`badge ${group.isOpen ? 'badge-success' : 'badge-full'}`}>{group.isOpen ? '● Open' : '● Full'}</span>
+                {group.isPrivate && <span className="badge badge-dim">🔒 Private</span>}
                 {group.schedule?.day && <span className="badge badge-dim">📅 {group.schedule.day}s at {group.schedule.time}</span>}
               </div>
               <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>{group.name}</h1>
@@ -235,8 +255,11 @@ export default function GroupDetail({ onAuthRequired }) {
               )}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+              {isGroupAdmin && (
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowAdminPanel(true)} style={{ border: '1.5px solid var(--primary)', color: 'var(--primary)' }}>⚙️ Admin</button>
+              )}
               {group.isMember ? (
-                !isCreator && <button className="btn btn-ghost btn-sm" onClick={handleLeave} disabled={leaving}>{leaving ? '…' : 'Leave group'}</button>
+                !isGroupAdmin && <button className="btn btn-ghost btn-sm" onClick={handleLeave} disabled={leaving}>{leaving ? '…' : 'Leave group'}</button>
               ) : (
                 <button className="btn btn-primary" onClick={handleJoin} disabled={joining || !group.isOpen}>
                   {joining ? 'Joining…' : group.isOpen ? 'Join Group' : 'Group Full'}
@@ -264,6 +287,7 @@ export default function GroupDetail({ onAuthRequired }) {
             <button className={`tab ${tab === 'campaigns' ? 'active' : ''}`} onClick={() => setTab('campaigns')}>📢 Campaigns</button>
             <button className={`tab ${tab === 'members' ? 'active' : ''}`} onClick={() => setTab('members')}>👥 Members ({group.memberCount})</button>
             <button className={`tab ${tab === 'about' ? 'active' : ''}`} onClick={() => setTab('about')}>ℹ About</button>
+            {isGroupAdmin && <button className={`tab ${tab === 'admin' ? 'active' : ''}`} onClick={() => setTab('admin')}>⚙️ Admin</button>}
           </div>
 
           <div style={{ flex: 1, overflow: 'hidden', background: 'var(--surface)', borderRadius: '0 0 var(--radius) var(--radius)', border: '1px solid var(--border)', borderTop: 'none' }}>
@@ -272,7 +296,7 @@ export default function GroupDetail({ onAuthRequired }) {
 
             {tab === 'events' && (
               <div style={{ padding: 20, overflowY: 'auto', height: '100%' }}>
-                {isCreator && (
+                {isGroupAdmin && (
                   <button className="btn btn-primary btn-sm" style={{ marginBottom: 16 }} onClick={() => setShowCreateEvent(true)}>+ Create Event</button>
                 )}
                 {!group.events?.length ? (
@@ -283,7 +307,7 @@ export default function GroupDetail({ onAuthRequired }) {
                   </div>
                 ) : (
                   <div style={{ display: 'grid', gap: 12 }}>
-                    {group.events.map(ev => <EventCard key={ev.id} event={ev} currentUser={currentUser} currency={currentUser?.currency||'GBP'} onRegister={() => registerForEvent({ variables: { eventId: ev.id } })} onUnregister={() => unregisterFromEvent({ variables: { eventId: ev.id } })} />)}
+                    {group.events.map(ev => <EventCard key={ev.id} event={ev} currentUser={currentUser} currency={currentUser?.currency||'GBP'} onRegister={() => registerForEvent({ variables: { eventId: ev.id } })} onUnregister={() => unregisterFromEvent({ variables: { eventId: ev.id } })} onJoinMeet={ev.videoUrl ? () => openMeetWidget(ev.videoUrl, ev.title) : null} />)}
                   </div>
                 )}
               </div>
@@ -291,7 +315,7 @@ export default function GroupDetail({ onAuthRequired }) {
 
             {tab === 'shop' && (
               <div style={{ padding: 20, overflowY: 'auto', height: '100%' }}>
-                {isCreator && (
+                {isGroupAdmin && (
                   <button className="btn btn-primary btn-sm" style={{ marginBottom: 16 }} onClick={() => setShowCreateProduct(true)}>+ Add Product</button>
                 )}
                 {!group.products?.length ? (
@@ -321,7 +345,7 @@ export default function GroupDetail({ onAuthRequired }) {
 
             {tab === 'campaigns' && (
               <div style={{ padding: 20, overflowY: 'auto', height: '100%' }}>
-                {isCreator && (
+                {isGroupAdmin && (
                   <button className="btn btn-primary btn-sm" style={{ marginBottom: 16 }} onClick={() => setShowCreateCampaign(true)}>+ Launch Campaign</button>
                 )}
                 {!group.campaigns?.length ? (
@@ -419,6 +443,37 @@ export default function GroupDetail({ onAuthRequired }) {
                 </div>
               </div>
             )}
+
+            {tab === 'admin' && isGroupAdmin && (
+              <div style={{ padding: 20, overflowY: 'auto', height: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ fontWeight: 800, fontSize: 'var(--font-lg)' }}>⚙️ Group Admin Panel</div>
+                <div className="card">
+                  <div style={{ fontWeight: 700, marginBottom: 8 }}>Visibility</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', flex: 1 }}>{group.isPrivate ? 'Group is private — only members can see it in listings.' : 'Group is public — anyone can find and join.'}</span>
+                    <button className="btn btn-sm" style={{ background: group.isPrivate ? 'var(--success)' : 'var(--primary)', color: '#fff' }} onClick={handleTogglePrivate}>
+                      {group.isPrivate ? '🔓 Make Public' : '🔒 Make Private'}
+                    </button>
+                  </div>
+                </div>
+                <div className="card">
+                  <div style={{ fontWeight: 700, marginBottom: 8 }}>👑 Assign Admin</div>
+                  {group.members?.filter(m => m.id !== currentUser?.id).map(m => (
+                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: m.avatarColor, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 12 }}>{m.name[0]}</div>
+                        <span style={{ fontWeight: 600 }}>{m.name}</span>
+                      </div>
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleAssignAdmin(m.id)}>Make Admin</button>
+                    </div>
+                  ))}
+                </div>
+                <div className="card" style={{ border: '1.5px solid rgba(239,68,68,0.3)' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--danger)', marginBottom: 8 }}>⚠️ Danger Zone</div>
+                  <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff' }} onClick={handleDeleteGroup}>🗑️ Delete Group</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -427,11 +482,97 @@ export default function GroupDetail({ onAuthRequired }) {
       {showCreateEvent && <CreateEventModal groupId={id} onClose={() => setShowCreateEvent(false)} refetch={refetch} />}
       {showCreateProduct && <CreateProductModal groupId={id} onClose={() => setShowCreateProduct(false)} refetch={refetch} />}
       {showCreateCampaign && <CreateCampaignModal groupId={id} onClose={() => setShowCreateCampaign(false)} refetch={refetch} />}
+
+      {/* Google Meet Widget */}
+      {meetWidget && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '65vh', background: 'var(--bg)', borderTop: '2px solid var(--primary)', zIndex: 300, display: 'flex', flexDirection: 'column', boxShadow: '0 -8px 32px rgba(0,0,0,0.3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 20 }}>🎥</span>
+              <span style={{ fontWeight: 700, fontSize: 'var(--font-base)' }}>{meetWidget.title}</span>
+              <span className="badge badge-success" style={{ fontSize: 11 }}>● LIVE</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <a href={meetWidget.url} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">Open in new tab ↗</a>
+              <button className="btn btn-ghost btn-sm" onClick={() => setMeetWidget(null)}>✕ Close</button>
+            </div>
+          </div>
+          <iframe
+            src={meetWidget.url}
+            title={meetWidget.title}
+            style={{ flex: 1, border: 'none', width: '100%' }}
+            allow="camera;microphone;fullscreen;display-capture"
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+          />
+        </div>
+      )}
+
+      {/* Admin Panel */}
+      {showAdminPanel && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 250, padding: 16 }}>
+          <div className="card" style={{ maxWidth: 480, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 800, margin: 0 }}>⚙️ Group Admin Panel</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowAdminPanel(false)}>✕</button>
+            </div>
+
+            {/* Privacy toggle */}
+            <div className="card" style={{ background: 'var(--surface2)', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{group.isPrivate ? '🔒 Private Group' : '🌐 Public Group'}</div>
+                  <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginTop: 2 }}>
+                    {group.isPrivate ? 'Only members can see this group in listings.' : 'Anyone can find and join this group.'}
+                  </div>
+                </div>
+                <button className="btn btn-sm" style={{ background: group.isPrivate ? 'var(--danger)' : 'var(--primary)', color: '#fff', minWidth: 110 }} onClick={handleTogglePrivate}>
+                  {group.isPrivate ? '🔓 Make Public' : '🔒 Make Private'}
+                </button>
+              </div>
+            </div>
+
+            {/* Assign admin */}
+            <div className="card" style={{ background: 'var(--surface2)', marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>👑 Assign New Admin</div>
+              <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 10 }}>Transfer admin rights to a group member.</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {group.members?.filter(m => m.id !== currentUser?.id).map(m => (
+                  <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg)', borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: '50%', background: m.avatarColor, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 12 }}>{m.name[0]}</div>
+                      <span style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{m.name}</span>
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => handleAssignAdmin(m.id)}>Make Admin</button>
+                  </div>
+                ))}
+                {group.members?.filter(m => m.id !== currentUser?.id).length === 0 && (
+                  <div style={{ color: 'var(--text-dim)', fontSize: 'var(--font-sm)' }}>No other members to assign.</div>
+                )}
+              </div>
+            </div>
+
+            {/* Leave / Delete */}
+            <div className="card" style={{ background: 'rgba(239,68,68,0.06)', border: '1.5px solid rgba(239,68,68,0.2)' }}>
+              <div style={{ fontWeight: 700, marginBottom: 10, color: 'var(--danger)' }}>⚠️ Danger Zone</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {!isCreator && (
+                  <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff' }} onClick={() => { setShowAdminPanel(false); handleLeave(); }}>
+                    🚪 Leave Group
+                  </button>
+                )}
+                <button className="btn btn-sm" style={{ background: 'var(--danger)', color: '#fff' }} onClick={() => { setShowAdminPanel(false); handleDeleteGroup(); }}>
+                  🗑️ Delete Group
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function EventCard({ event, currentUser, currency, onRegister, onUnregister }) {
+function EventCard({ event, currentUser, currency, onRegister, onUnregister, onJoinMeet }) {
   const isPast = new Date(event.startsAt) < new Date();
   const spotsLeft = event.capacity - event.registrationCount;
   return (
@@ -454,7 +595,12 @@ function EventCard({ event, currentUser, currency, onRegister, onUnregister }) {
           <div style={{ flexShrink: 0 }}>
             {event.isRegistered ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-                {event.videoUrl && <a href={event.videoUrl} target="_blank" rel="noreferrer" className="btn btn-primary btn-sm">▶ Join Now</a>}
+                {event.videoUrl && onJoinMeet && (
+                  <button className="btn btn-primary btn-sm" onClick={onJoinMeet}>🎥 Join in App</button>
+                )}
+                {event.videoUrl && !onJoinMeet && (
+                  <a href={event.videoUrl} target="_blank" rel="noreferrer" className="btn btn-primary btn-sm">▶ Join Now</a>
+                )}
                 <button className="btn btn-ghost btn-sm" onClick={onUnregister}>Unregister</button>
               </div>
             ) : (

@@ -4,7 +4,7 @@ const USER_FIELDS = `id name email bio interests avatarColor age ageGroup theme 
   location { building neighborhood city country lat lng }
   children { id name age ageGroup avatarColor walletCoins }`;
 
-const GROUP_FIELDS = `id name description category tags maxMembers memberCount isOpen isMember createdAt
+const GROUP_FIELDS = `id name description category tags maxMembers memberCount isOpen isMember isPrivate isGroupAdmin createdAt
   ageGroups
   location { building neighborhood city country }
   schedule { day time frequency duration nextSession }
@@ -289,4 +289,23 @@ export const REQUEST_DATA_EXPORT_MUTATION = gql`mutation RequestDataExport { req
 export const DELETE_MY_ACCOUNT_MUTATION = gql`mutation DeleteMyAccount($password:String!) { deleteMyAccount(password:$password) }`;
 export const RECORD_CONSENT_MUTATION = gql`mutation RecordConsent($termsAccepted:Boolean,$privacyAccepted:Boolean) {
   recordConsent(termsAccepted:$termsAccepted,privacyAccepted:$privacyAccepted) { ${PRIVACY_FIELDS} }
+}`;
+
+/* ═══════════════════════════════════════ GROUP ADMIN ═════════════════════ */
+
+export const DELETE_GROUP_MUTATION = gql`mutation DeleteGroup($groupId:ID!) { deleteGroup(groupId:$groupId) }`;
+export const MAKE_GROUP_PRIVATE_MUTATION = gql`mutation MakeGroupPrivate($groupId:ID!,$isPrivate:Boolean!) {
+  makeGroupPrivate(groupId:$groupId,isPrivate:$isPrivate) { id isPrivate isGroupAdmin }
+}`;
+export const ASSIGN_GROUP_ADMIN_MUTATION = gql`mutation AssignGroupAdmin($groupId:ID!,$userId:ID!) {
+  assignGroupAdmin(groupId:$groupId,userId:$userId) { id isGroupAdmin members { id name avatarColor } }
+}`;
+
+/* ═══════════════════════════════════════ PAYMENTS ════════════════════════ */
+
+export const CREATE_PAYMENT_INTENT_MUTATION = gql`mutation CreatePaymentIntent($amount:Int!,$currency:String,$description:String) {
+  createPaymentIntent(amount:$amount,currency:$currency,description:$description) { clientSecret paymentIntentId amount currency }
+}`;
+export const CONFIRM_TIP_PAYMENT_MUTATION = gql`mutation ConfirmTipPayment($paymentIntentId:String!,$toUserId:ID!,$groupId:ID,$amount:Int!,$message:String) {
+  confirmTipPayment(paymentIntentId:$paymentIntentId,toUserId:$toUserId,groupId:$groupId,amount:$amount,message:$message) { id amount message }
 }`;

@@ -75,6 +75,8 @@ export const typeDefs = `#graphql
     creator: User!
     isOpen: Boolean!
     isMember: Boolean!
+    isPrivate: Boolean!
+    isGroupAdmin: Boolean!
     events: [Event!]!
     products: [Product!]!
     campaigns: [Campaign!]!
@@ -333,6 +335,11 @@ export const typeDefs = `#graphql
     createGroup(name: String!, description: String!, category: String!, tags: [String!], maxMembers: Int!, ageGroups: [AgeGroup!], city: String, building: String, neighborhood: String, scheduleDay: String, scheduleTime: String, scheduleFrequency: String, scheduleDuration: Int): Group!
     joinGroup(groupId: ID!): Group!
     leaveGroup(groupId: ID!): Group!
+    deleteGroup(groupId: ID!): Boolean!
+    makeGroupPrivate(groupId: ID!, isPrivate: Boolean!): Group!
+    assignGroupAdmin(groupId: ID!, userId: ID!): Group!
+    createPaymentIntent(amount: Int!, currency: String, description: String): PaymentIntent!
+    confirmTipPayment(paymentIntentId: String!, toUserId: ID!, groupId: ID, amount: Int!, message: String): Tip!
     sendMessage(groupId: ID!, content: String!, messageType: MessageType, videoUrl: String): Message!
     sendBuddyRequest(toUserId: ID!): Boolean!
     markNotificationsRead: Boolean!
@@ -368,6 +375,13 @@ export const typeDefs = `#graphql
     requestDataExport: String!
     deleteMyAccount(password: String!): Boolean!
     recordConsent(termsAccepted: Boolean, privacyAccepted: Boolean): PrivacySettings!
+  }
+
+  type PaymentIntent {
+    clientSecret: String!
+    paymentIntentId: String!
+    amount: Int!
+    currency: String!
   }
 
   type Subscription {

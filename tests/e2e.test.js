@@ -54,6 +54,7 @@ const S = {
   learningId: null,
   webinarId:  null,
   childUser:  null,
+  paymentIntentId: null,
 };
 
 // ─── GraphQL helpers ──────────────────────────────────────────────────────────
@@ -1057,6 +1058,110 @@ await test('Carol cannot create a 2nd expert profile (role conflict)', 'Security
   const r = await gql(`mutation { registerAsExpert(headline:"x",skills:["x"]) { id } }`, {}, S.carol.token);
   // Carol is SELLER — should be blocked
   expect(r.errors, r.errors?.length > 0, 'seller cannot register as expert');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('🔒 GROUP ADMIN — Private, assign admin, delete');
+// ─────────────────────────────────────────────────────────────────────────────
+
+await test('Alice makes her group private', 'GroupAdmin', async () => {
+  const r = await gql(`mutation { makeGroupPrivate(groupId:"${S.groupId}",isPrivate:true) { id isPrivate } }`, {}, S.alice.token);
+  expectNoErrors(r, 'makeGroupPrivate');
+  expect(r.data.makeGroupPrivate.isPrivate, r.data.makeGroupPrivate.isPrivate === true, 'group is private');
+});
+
+await test('Private group invisible to unauthenticated users', 'GroupAdmin', async () => {
+  const r = await gql(`query { groups { id } }`, {});
+  expectNoErrors(r, 'groups unauthenticated');
+  const found = (r.data.groups || []).find(g => g.id === S.groupId);
+  expect('group hidden from public', !found, 'private group not in public listing');
+});
+
+await test('Alice makes her group public again', 'GroupAdmin', async () => {
+  const r = await gql(`mutation { makeGroupPrivate(groupId:"${S.groupId}",isPrivate:false) { id isPrivate } }`, {}, S.alice.token);
+  expectNoErrors(r, 'makeGroupPublic');
+  expect(r.data.makeGroupPrivate.isPrivate, r.data.makeGroupPrivate.isPrivate === false, 'group is public');
+});
+
+await test('Non-admin cannot change group visibility', 'GroupAdmin', async () => {
+  const r = await gql(`mutation { makeGroupPrivate(groupId:"${S.groupId}",isPrivate:true) { id } }`, {}, S.bob.token);
+  expect('non-admin blocked', (r.errors||[]).length > 0, 'error for non-admin');
+});
+
+await test('Alice assigns Bob as group admin', 'GroupAdmin', async () => {
+  const r = await gql(`mutation { assignGroupAdmin(groupId:"${S.groupId}",userId:"${S.bob.user.id}") { id } }`, {}, S.alice.token);
+  expectNoErrors(r, 'assignGroupAdmin');
+});
+
+await test('Non-member cannot be assigned admin', 'GroupAdmin', async () => {
+  const r = await gql(`mutation { assignGroupAdmin(groupId:"${S.groupId}",userId:"${S.dave.id}") { id } }`, {}, S.alice.token);
+  expect('non-member blocked', (r.errors||[]).length > 0, 'error for non-member');
+});
+
+await test('Alice reclaims admin rights', 'GroupAdmin', async () => {
+  const r = await gql(`mutation { assignGroupAdmin(groupId:"${S.groupId}",userId:"${S.alice.user.id}") { id } }`, {}, S.alice.token);
+  expectNoErrors(r, 'reclaim admin');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('💳 PAYMENT — Payment intent creation');
+// ─────────────────────────────────────────────────────────────────────────────
+
+await test('Alice creates a payment intent', 'Payment', async () => {
+  const r = await gql(`mutation { createPaymentIntent(amount:500,currency:"gbp",description:"Tip for Bob") { clientSecret paymentIntentId amount currency } }`, {}, S.alice.token);
+  expectNoErrors(r, 'createPaymentIntent');
+  const pi = r.data.createPaymentIntent;
+  expect(pi.paymentIntentId, pi.paymentIntentId?.startsWith('pi_'), 'has paymentIntentId');
+  expect(pi.clientSecret, !!pi.clientSecret, 'has clientSecret');
+  expect(pi.amount, pi.amount === 500, 'amount matches');
+  S.paymentIntentId = pi.paymentIntentId;
+});
+
+await test('Payment intent requires auth', 'Payment', async () => {
+  const r = await gql(`mutation { createPaymentIntent(amount:500) { clientSecret } }`);
+  expect('auth required', (r.errors||[]).length > 0, 'error without auth');
+});
+
+await test('Payment intent minimum amount enforced', 'Payment', async () => {
+  const r = await gql(`mutation { createPaymentIntent(amount:10) { clientSecret } }`, {}, S.alice.token);
+  expect('min amount enforced', (r.errors||[]).length > 0, 'error for amount < 50');
+});
+
+await test('Alice confirms tip payment', 'Payment', async () => {
+  const r = await gql(`mutation { confirmTipPayment(paymentIntentId:"${S.paymentIntentId}",toUserId:"${S.bob.user.id}",groupId:"${S.groupId}",amount:5,message:"Great work!") { id amount message } }`, {}, S.alice.token);
+  expectNoErrors(r, 'confirmTipPayment');
+  expect(r.data.confirmTipPayment.amount, r.data.confirmTipPayment.amount === 5, 'tip amount correct');
+});
+
+await test('Cannot tip yourself via payment', 'Payment', async () => {
+  const r = await gql(`mutation { confirmTipPayment(paymentIntentId:"pi_self",toUserId:"${S.alice.user.id}",amount:5) { id } }`, {}, S.alice.token);
+  expect('self-tip blocked', (r.errors||[]).length > 0, 'error for self-tip');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+section('🏠 SMART GROUPS — Dashboard categorisation');
+// ─────────────────────────────────────────────────────────────────────────────
+
+await test('Groups query returns groups for authenticated user', 'SmartGroups', async () => {
+  const r = await gql(`query { groups { id name isMember isPrivate } }`, {}, S.alice.token);
+  expectNoErrors(r, 'groups authenticated');
+  expect('groups returned', (r.data.groups||[]).length > 0, 'at least 1 group');
+});
+
+await test('Authenticated user sees their joined groups flagged', 'SmartGroups', async () => {
+  const r = await gql(`query { groups { id isMember } }`, {}, S.alice.token);
+  expectNoErrors(r, 'groups isMember');
+  const joined = (r.data.groups||[]).filter(g => g.isMember);
+  expect('alice has joined groups', joined.length >= 1, `${joined.length} joined group(s)`);
+});
+
+await test('Private groups not returned to non-members', 'SmartGroups', async () => {
+  await gql(`mutation { makeGroupPrivate(groupId:"${S.groupId}",isPrivate:true) { id } }`, {}, S.alice.token);
+  const r = await gql(`query { groups { id } }`, {}, S.dave.token);
+  expectNoErrors(r, 'groups dave');
+  const found = (r.data.groups||[]).find(g => g.id === S.groupId);
+  expect('private group hidden from non-member', !found, 'not visible to dave');
+  await gql(`mutation { makeGroupPrivate(groupId:"${S.groupId}",isPrivate:false) { id } }`, {}, S.alice.token);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
