@@ -522,13 +522,13 @@ export async function assignGroupAdmin(groupId, userId) {
   return getGroup(groupId);
 }
 export async function getUserGroups(userId) {
+  // Fetch the groups + each group's member count in one query
   const { rows } = await query(
-    `SELECT g.*, COUNT(gm2.user_id)::int AS member_count
+    `SELECT g.*,
+            (SELECT COUNT(*)::int FROM group_members WHERE group_id = g.id) AS member_count,
+            gm.joined_at AS user_joined_at
      FROM groups g
-     JOIN group_members gm ON g.id = gm.group_id
-     LEFT JOIN group_members gm2 ON g.id = gm2.group_id
-     WHERE gm.user_id = $1
-     GROUP BY g.id
+     JOIN group_members gm ON g.id = gm.group_id AND gm.user_id = $1
      ORDER BY gm.joined_at DESC`,
     [userId]
   );
