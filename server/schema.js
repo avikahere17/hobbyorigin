@@ -9,7 +9,9 @@ export const typeDefs = `#graphql
   enum ServiceType { CHARITY PAID BOTH }
   enum BookingStatus { PENDING CONFIRMED CANCELLED COMPLETED }
   enum UserRole { USER EXPERT SELLER ADMIN }
-  enum MessageType { TEXT VIDEO IMAGE LINK }
+  enum MessageType { TEXT VIDEO IMAGE LINK AUDIO }
+  enum ContentType { ARTICLE VIDEO AUDIO }
+  enum WebinarStatus { SCHEDULED LIVE ENDED CANCELLED }
 
   type Location {
     building: String
@@ -77,6 +79,7 @@ export const typeDefs = `#graphql
     products: [Product!]!
     campaigns: [Campaign!]!
     isSeeded: Boolean!
+    webinars: [Webinar!]!
     createdAt: String!
   }
 
@@ -235,6 +238,39 @@ export const typeDefs = `#graphql
     createdAt: String!
   }
 
+  type LearningContent {
+    id: ID!
+    contentType: ContentType!
+    title: String!
+    body: String!
+    mediaUrl: String!
+    thumbnailUrl: String!
+    category: String!
+    tags: [String!]!
+    author: User!
+    isPublished: Boolean!
+    viewCount: Int!
+    createdAt: String!
+  }
+
+  type Webinar {
+    id: ID!
+    groupId: ID!
+    title: String!
+    description: String!
+    meetingUrl: String!
+    startsAt: String!
+    durationMins: Int!
+    maxAttendees: Int!
+    status: WebinarStatus!
+    rewardTotal: Int!
+    attendeeCount: Int!
+    isAttending: Boolean!
+    host: User!
+    attendees: [User!]!
+    createdAt: String!
+  }
+
   type AdminStats {
     totalUsers: Int!
     totalGroups: Int!
@@ -266,6 +302,9 @@ export const typeDefs = `#graphql
     coupon(code: String!): Coupon
     adminStats: AdminStats!
     adminUsers(search: String, role: UserRole): [User!]!
+    learningContent(category: String, contentType: ContentType, search: String): [LearningContent!]!
+    learningContentItem(id: ID!): LearningContent
+    groupWebinars(groupId: ID!): [Webinar!]!
   }
 
   type Mutation {
@@ -297,6 +336,14 @@ export const typeDefs = `#graphql
     deleteCoupon(id: ID!): Boolean!
     setUserRole(userId: ID!, role: UserRole!): User!
     seedGroups: Boolean!
+    createLearningContent(contentType: ContentType!, title: String!, body: String, mediaUrl: String, thumbnailUrl: String, category: String, tags: [String!]): LearningContent!
+    deleteLearningContent(id: ID!): Boolean!
+    createWebinar(groupId: ID!, title: String!, description: String, meetingUrl: String, startsAt: String!, durationMins: Int, maxAttendees: Int): Webinar!
+    joinWebinar(webinarId: ID!): Webinar!
+    leaveWebinar(webinarId: ID!): Webinar!
+    startWebinar(webinarId: ID!, meetingUrl: String): Webinar!
+    endWebinar(webinarId: ID!): Webinar!
+    rewardWebinarHost(webinarId: ID!, amount: Int!, message: String): Webinar!
   }
 
   type Subscription {

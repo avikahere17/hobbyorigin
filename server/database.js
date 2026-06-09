@@ -236,6 +236,43 @@ export async function initDB() {
       comment TEXT DEFAULT '',
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS learning_content (
+      id TEXT PRIMARY KEY,
+      content_type TEXT NOT NULL DEFAULT 'ARTICLE',
+      title TEXT NOT NULL,
+      body TEXT DEFAULT '',
+      media_url TEXT DEFAULT '',
+      thumbnail_url TEXT DEFAULT '',
+      category TEXT DEFAULT 'General',
+      tags TEXT DEFAULT '[]',
+      author_id TEXT NOT NULL REFERENCES users(id),
+      is_published BOOLEAN DEFAULT TRUE,
+      view_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS webinars (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      host_id TEXT NOT NULL REFERENCES users(id),
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      meeting_url TEXT DEFAULT '',
+      starts_at TEXT NOT NULL,
+      duration_mins INTEGER DEFAULT 60,
+      max_attendees INTEGER DEFAULT 100,
+      status TEXT DEFAULT 'SCHEDULED',
+      reward_total INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS webinar_attendees (
+      webinar_id TEXT NOT NULL REFERENCES webinars(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      joined_at TEXT NOT NULL,
+      PRIMARY KEY (webinar_id, user_id)
+    );
   `);
   console.log('✅ PostgreSQL tables ready');
 }
@@ -597,6 +634,84 @@ export async function useCoupon(code) {
   await query('UPDATE coupons SET used_count=used_count+1 WHERE code=$1', [code.toUpperCase()]);
 }
 
+// ── LEARNING CONTENT ──────────────────────────────────────────────────────────
+
+export async function createLearningContent({ id, contentType, title, body, mediaUrl, thumbnailUrl, category, tags, authorId }) {
+  const now = new Date().toISOString();
+  await query(
+    'INSERT INTO learning_content (id,content_type,title,body,media_url,thumbnail_url,category,tags,author_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+    [id, contentType||'ARTICLE', title, body||'', mediaUrl||'', thumbnailUrl||'', category||'General', JSON.stringify(tags||[]), authorId, now]
+  );
+  return getLearningContent(id);
+}
+export async function getLearningContent(id) {
+  const { rows } = await query('SELECT * FROM learning_content WHERE id=$1', [id]);
+  return rows[0] ? fmt.learningContent(rows[0]) : null;
+}
+export async function getLearningContentList({ category, contentType, search, limit=50 } = {}) {
+  let q = 'SELECT * FROM learning_content WHERE is_published=TRUE';
+  const p = []; let idx = 1;
+  if (category) { q += ` AND category=$${idx++}`; p.push(category); }
+  if (contentType) { q += ` AND content_type=$${idx++}`; p.push(contentType); }
+  if (search) { q += ` AND (title ILIKE $${idx} OR body ILIKE $${idx++})`; p.push(`%${search}%`); }
+  q += ` ORDER BY created_at DESC LIMIT ${limit}`;
+  const { rows } = await query(q, p);
+  return rows.map(fmt.learningContent);
+}
+export async function deleteLearningContent(id) {
+  await query('UPDATE learning_content SET is_published=FALSE WHERE id=$1', [id]);
+}
+export async function incrementViewCount(id) {
+  await query('UPDATE learning_content SET view_count=view_count+1 WHERE id=$1', [id]);
+}
+
+// ── WEBINARS ──────────────────────────────────────────────────────────────────
+
+export async function createWebinar({ id, groupId, hostId, title, description, meetingUrl, startsAt, durationMins, maxAttendees }) {
+  const now = new Date().toISOString();
+  await query(
+    'INSERT INTO webinars (id,group_id,host_id,title,description,meeting_url,starts_at,duration_mins,max_attendees,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+    [id, groupId, hostId, title, description||'', meetingUrl||'', startsAt, durationMins||60, maxAttendees||100, now]
+  );
+  // Host auto-joins
+  await query('INSERT INTO webinar_attendees (webinar_id,user_id,joined_at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [id, hostId, now]);
+  return getWebinar(id);
+}
+export async function getWebinar(id) {
+  const { rows } = await query('SELECT * FROM webinars WHERE id=$1', [id]);
+  return rows[0] ? fmt.webinar(rows[0]) : null;
+}
+export async function getGroupWebinars(groupId) {
+  const { rows } = await query('SELECT * FROM webinars WHERE group_id=$1 ORDER BY starts_at DESC', [groupId]);
+  return rows.map(fmt.webinar);
+}
+export async function joinWebinar(webinarId, userId) {
+  await query('INSERT INTO webinar_attendees (webinar_id,user_id,joined_at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [webinarId, userId, new Date().toISOString()]);
+}
+export async function leaveWebinar(webinarId, userId) {
+  await query('DELETE FROM webinar_attendees WHERE webinar_id=$1 AND user_id=$2', [webinarId, userId]);
+}
+export async function getWebinarAttendees(webinarId) {
+  const { rows } = await query('SELECT u.* FROM users u JOIN webinar_attendees wa ON u.id=wa.user_id WHERE wa.webinar_id=$1', [webinarId]);
+  return rows.map(fmt.user);
+}
+export async function getWebinarAttendeeCount(webinarId) {
+  const { rows } = await query('SELECT COUNT(*) as c FROM webinar_attendees WHERE webinar_id=$1', [webinarId]);
+  return parseInt(rows[0].c);
+}
+export async function isWebinarAttendee(webinarId, userId) {
+  const { rows } = await query('SELECT 1 FROM webinar_attendees WHERE webinar_id=$1 AND user_id=$2', [webinarId, userId]);
+  return rows.length > 0;
+}
+export async function updateWebinarStatus(id, status, meetingUrl) {
+  if (meetingUrl !== undefined) await query('UPDATE webinars SET status=$1, meeting_url=$2 WHERE id=$3', [status, meetingUrl, id]);
+  else await query('UPDATE webinars SET status=$1 WHERE id=$2', [status, id]);
+  return getWebinar(id);
+}
+export async function addWebinarReward(id, amount) {
+  await query('UPDATE webinars SET reward_total=reward_total+$1 WHERE id=$2', [amount, id]);
+}
+
 // ── SEED GROUPS ───────────────────────────────────────────────────────────────
 
 const SEED_GROUPS = [
@@ -713,6 +828,28 @@ const fmt = {
     ratingCount: e.rating_count,
     totalSessions: e.total_sessions,
     createdAt: e.created_at,
+  }),
+  learningContent: lc => ({
+    ...lc,
+    contentType: lc.content_type,
+    mediaUrl: lc.media_url || '',
+    thumbnailUrl: lc.thumbnail_url || '',
+    tags: JSON.parse(lc.tags || '[]'),
+    authorId: lc.author_id,
+    isPublished: !!lc.is_published,
+    viewCount: lc.view_count || 0,
+    createdAt: lc.created_at,
+  }),
+  webinar: w => ({
+    ...w,
+    groupId: w.group_id,
+    hostId: w.host_id,
+    meetingUrl: w.meeting_url || '',
+    startsAt: w.starts_at,
+    durationMins: w.duration_mins,
+    maxAttendees: w.max_attendees,
+    rewardTotal: w.reward_total || 0,
+    createdAt: w.created_at,
   }),
   booking: b => ({
     ...b,

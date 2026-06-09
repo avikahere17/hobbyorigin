@@ -5,7 +5,10 @@ import { useNavigate } from 'react-router-dom';
 import {
   ADMIN_STATS_QUERY, ADMIN_USERS_QUERY,
   SET_USER_ROLE_MUTATION, SEED_GROUPS_MUTATION,
+  LEARNING_CONTENT_QUERY, CREATE_LEARNING_CONTENT_MUTATION, DELETE_LEARNING_CONTENT_MUTATION,
 } from '../graphql';
+
+const CONTENT_CATEGORIES = ['General', 'Music', 'Art & Design', 'Programming', 'Sports', 'Cooking', 'Photography', 'Writing', 'Science', 'Wellness', 'Elder Care'];
 
 const ROLES = ['USER', 'EXPERT', 'SELLER', 'ADMIN'];
 const ROLE_COLOR = { USER: '#6b7280', EXPERT: '#6366f1', SELLER: '#f59e0b', ADMIN: '#ef4444' };
@@ -27,14 +30,23 @@ export default function AdminDashboard() {
   const [roleFilter, setRoleFilter] = useState('');
   const [seeding, setSeeding] = useState(false);
   const [seedMsg, setSeedMsg] = useState('');
+  const [lcTab, setLcTab] = useState('list');
+  const [lcForm, setLcForm] = useState({ contentType: 'VIDEO', title: '', body: '', mediaUrl: '', thumbnailUrl: '', category: 'General', tags: '' });
+  const setLcF = (k, v) => setLcForm(f => ({ ...f, [k]: v }));
 
   const { data: statsData, loading: statsLoading } = useQuery(ADMIN_STATS_QUERY);
   const { data: usersData, loading: usersLoading, refetch: refetchUsers } = useQuery(ADMIN_USERS_QUERY, {
     variables: { search: search || null, role: roleFilter || null },
   });
+  const { data: lcData, loading: lcLoading, refetch: refetchLC } = useQuery(LEARNING_CONTENT_QUERY, { variables: {} });
 
   const [setUserRole] = useMutation(SET_USER_ROLE_MUTATION, { refetchQueries: [{ query: ADMIN_USERS_QUERY, variables: { search: search || null, role: roleFilter || null } }] });
   const [seedGroups] = useMutation(SEED_GROUPS_MUTATION);
+  const [createLC, { loading: lcCreating }] = useMutation(CREATE_LEARNING_CONTENT_MUTATION, {
+    onCompleted: () => { refetchLC(); setLcTab('list'); setLcForm({ contentType: 'VIDEO', title: '', body: '', mediaUrl: '', thumbnailUrl: '', category: 'General', tags: '' }); },
+    onError: e => alert(e.message),
+  });
+  const [deleteLC] = useMutation(DELETE_LEARNING_CONTENT_MUTATION, { onCompleted: refetchLC });
 
   if (!currentUser) { navigate('/'); return null; }
   if (currentUser.role !== 'ADMIN') {
@@ -127,6 +139,94 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {/* Learning Content */}
+        <div className="card" style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+            <h2 style={{ fontWeight: 800, fontSize: 'var(--font-lg)' }}>📚 Learning Library</h2>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className={`btn btn-sm ${lcTab==='list'?'btn-primary':'btn-ghost'}`} onClick={()=>setLcTab('list')}>📋 Content</button>
+              <button className={`btn btn-sm ${lcTab==='add'?'btn-primary':'btn-ghost'}`} onClick={()=>setLcTab('add')}>+ Add Content</button>
+            </div>
+          </div>
+
+          {lcTab === 'add' && (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Type *</label>
+                  <select className="input" value={lcForm.contentType} onChange={e => setLcF('contentType', e.target.value)}>
+                    <option value="VIDEO">🎬 Video</option>
+                    <option value="ARTICLE">📄 Article</option>
+                    <option value="AUDIO">🎵 Audio</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Category</label>
+                  <select className="input" value={lcForm.category} onChange={e => setLcF('category', e.target.value)}>
+                    {CONTENT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Title *</label>
+                <input className="input" value={lcForm.title} onChange={e => setLcF('title', e.target.value)} placeholder="e.g. Beginner Guitar: First 5 Chords" />
+              </div>
+              {(lcForm.contentType === 'VIDEO' || lcForm.contentType === 'AUDIO') && (
+                <div className="form-group">
+                  <label className="form-label">{lcForm.contentType === 'VIDEO' ? '🎬' : '🎵'} Media URL</label>
+                  <input className="input" value={lcForm.mediaUrl} onChange={e => setLcF('mediaUrl', e.target.value)} placeholder={lcForm.contentType === 'VIDEO' ? 'https://youtube.com/watch?v=... or direct MP4 URL' : 'https://... audio file URL'} />
+                </div>
+              )}
+              {lcForm.contentType === 'VIDEO' && (
+                <div className="form-group">
+                  <label className="form-label">Thumbnail URL (optional)</label>
+                  <input className="input" value={lcForm.thumbnailUrl} onChange={e => setLcF('thumbnailUrl', e.target.value)} placeholder="https://... image URL" />
+                </div>
+              )}
+              <div className="form-group">
+                <label className="form-label">{lcForm.contentType === 'ARTICLE' ? 'Article body *' : 'Description / notes'}</label>
+                <textarea className="input" rows={lcForm.contentType === 'ARTICLE' ? 8 : 3} value={lcForm.body} onChange={e => setLcF('body', e.target.value)} placeholder={lcForm.contentType === 'ARTICLE' ? 'Write your full article here…' : 'Brief description of this resource…'} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Tags (comma-separated)</label>
+                <input className="input" value={lcForm.tags} onChange={e => setLcF('tags', e.target.value)} placeholder="beginner, guitar, chords" />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setLcTab('list')}>Cancel</button>
+                <button className="btn btn-primary" style={{ flex: 2 }} disabled={lcCreating || !lcForm.title}
+                  onClick={() => createLC({ variables: { ...lcForm, tags: lcForm.tags ? lcForm.tags.split(',').map(t=>t.trim()).filter(Boolean) : [] } })}>
+                  {lcCreating ? 'Publishing…' : '📤 Publish'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {lcTab === 'list' && (
+            lcLoading ? <div className="loading-center"><div className="spinner" /></div> :
+            !lcData?.learningContent?.length ? (
+              <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>📚</div>
+                <p>No content yet. Click <strong>+ Add Content</strong> to publish the first resource.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {lcData.learningContent.map(lc => (
+                  <div key={lc.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'var(--surface2)', borderRadius: 'var(--radius-sm)', flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 24 }}>{lc.contentType === 'VIDEO' ? '🎬' : lc.contentType === 'AUDIO' ? '🎵' : '📄'}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lc.title}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{lc.category} · 👁 {lc.viewCount} views</div>
+                    </div>
+                    <span className="badge badge-dim" style={{ fontSize: 10 }}>{lc.contentType}</span>
+                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)', flexShrink: 0 }}
+                      onClick={() => { if(window.confirm('Delete this content?')) deleteLC({ variables: { id: lc.id } }); }}>🗑</button>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+        </div>
 
         {/* User management */}
         <div className="card">

@@ -17,6 +17,9 @@ import {
   createReview, getExpertReviews,
   createCoupon, getCoupon, getCouponByCode, getSellerCoupons, deleteCoupon,
   seedGroups as dbSeedGroups,
+  createLearningContent, getLearningContent, getLearningContentList, deleteLearningContent as dbDeleteLearningContent, incrementViewCount,
+  createWebinar as dbCreateWebinar, getWebinar, getGroupWebinars, joinWebinar as dbJoinWebinar, leaveWebinar as dbLeaveWebinar,
+  getWebinarAttendees, getWebinarAttendeeCount, isWebinarAttendee, updateWebinarStatus, addWebinarReward,
 } from './database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'hobbyorigin_secret_2024';
@@ -88,7 +91,7 @@ async function resolveUser(u) {
 
 async function resolveGroup(g, userId) {
   if (!g) return null;
-  const [members, count, memberCheck, messages, events, products, campaigns, creator] = await Promise.all([
+  const [members, count, memberCheck, messages, events, products, campaigns, creator, webinars] = await Promise.all([
     getGroupMembers(g.id).catch(() => []),
     getMemberCount(g.id).catch(() => 0),
     userId ? isMember(g.id, userId).catch(() => false) : Promise.resolve(false),
@@ -97,6 +100,7 @@ async function resolveGroup(g, userId) {
     getGroupProducts(g.id).catch(() => []),
     getGroupCampaigns(g.id).catch(() => []),
     getUser(g.creatorId).catch(() => null),
+    getGroupWebinars(g.id).catch(() => []),
   ]);
   return {
     ...g,
@@ -116,6 +120,7 @@ async function resolveGroup(g, userId) {
     events: await Promise.all(events.map(e => resolveEvent(e, userId))),
     products: await Promise.all(products.map(p => resolveProduct(p))),
     campaigns: await Promise.all(campaigns.map(c => resolveCampaign(c))),
+    webinars: await Promise.all(webinars.map(w => resolveWebinar(w, userId))),
   };
 }
 
@@ -161,6 +166,23 @@ async function resolveExpert(e) {
       createdAt: r.created_at,
       reviewer: await resolveUser(await getUser(r.user_id)),
     }))),
+  };
+}
+
+async function resolveWebinar(w, userId) {
+  if (!w) return null;
+  const [host, attendees, count, attending] = await Promise.all([
+    getUser(w.hostId).catch(() => null),
+    getWebinarAttendees(w.id).catch(() => []),
+    getWebinarAttendeeCount(w.id).catch(() => 0),
+    userId ? isWebinarAttendee(w.id, userId).catch(() => false) : Promise.resolve(false),
+  ]);
+  return {
+    ...w,
+    host: host ? await resolveUser(host) : { id: w.hostId, name: 'Unknown', avatarColor: '#6366f1', ageGroup: 'ADULTS', role: 'USER', bio: '', interests: [], theme: 'STANDARD', language: 'en', currency: 'GBP', locale: 'en-GB', joinedGroups: [], unreadCount: 0, tipsEarned: 0, walletCoins: 0, children: [], createdAt: w.createdAt, location: { building:'', neighborhood:'', city:'', country:'', lat:null, lng:null } },
+    attendees: await Promise.all(attendees.map(a => resolveUser(a))),
+    attendeeCount: count,
+    isAttending: attending,
   };
 }
 
@@ -320,6 +342,23 @@ export const resolvers = {
       if (user.role !== 'ADMIN') throw new GraphQLError('Admin access required');
       const users = await getAdminUsers(args);
       return Promise.all(users.map(u => resolveUser(u)));
+    },
+
+    learningContent: async (_, args) => {
+      const items = await getLearningContentList(args);
+      return Promise.all(items.map(async lc => ({ ...lc, author: await resolveUser(await getUser(lc.authorId)) })));
+    },
+
+    learningContentItem: async (_, { id }) => {
+      const lc = await getLearningContent(id);
+      if (!lc) return null;
+      await incrementViewCount(id);
+      return { ...lc, author: await resolveUser(await getUser(lc.authorId)) };
+    },
+
+    groupWebinars: async (_, { groupId }, { user }) => {
+      const webinars = await getGroupWebinars(groupId);
+      return Promise.all(webinars.map(w => resolveWebinar(w, user?.id)));
     },
   },
 
@@ -593,6 +632,82 @@ export const resolvers = {
       requireAuth(user);
       if (user.role !== 'ADMIN') throw new GraphQLError('Admin access required');
       return dbSeedGroups(user.id);
+    },
+
+    createLearningContent: async (_, args, { user }) => {
+      requireAuth(user);
+      if (user.role !== 'ADMIN') throw new GraphQLError('Admin access required');
+      const id = uuid();
+      const lc = await createLearningContent({ id, ...args, authorId: user.id });
+      return { ...lc, author: await resolveUser(await getUser(user.id)) };
+    },
+
+    deleteLearningContent: async (_, { id }, { user }) => {
+      requireAuth(user);
+      if (user.role !== 'ADMIN') throw new GraphQLError('Admin access required');
+      await dbDeleteLearningContent(id);
+      return true;
+    },
+
+    createWebinar: async (_, args, { user, pubsub }) => {
+      requireAuth(user);
+      const memberCheck = await isMember(args.groupId, user.id);
+      if (!memberCheck) throw new GraphQLError('You must be a group member to host a webinar');
+      const id = uuid();
+      const webinar = await dbCreateWebinar({ id, ...args, hostId: user.id });
+      const notifId = uuid();
+      const members = await getGroupMembers(args.groupId);
+      await Promise.all(members.filter(m => m.id !== user.id).map(m =>
+        createNotification({ id: uuid(), userId: m.id, type: 'WEBINAR_CREATED', title: `🎙️ ${user.name} is hosting a webinar!`, message: `"${args.title}" — Join now`, groupId: args.groupId, actorId: user.id })
+      ));
+      return resolveWebinar(webinar, user.id);
+    },
+
+    joinWebinar: async (_, { webinarId }, { user }) => {
+      requireAuth(user);
+      const w = await getWebinar(webinarId);
+      if (!w) throw new GraphQLError('Webinar not found');
+      const count = await getWebinarAttendeeCount(webinarId);
+      if (count >= w.maxAttendees) throw new GraphQLError('Webinar is full');
+      await dbJoinWebinar(webinarId, user.id);
+      return resolveWebinar(await getWebinar(webinarId), user.id);
+    },
+
+    leaveWebinar: async (_, { webinarId }, { user }) => {
+      requireAuth(user);
+      await dbLeaveWebinar(webinarId, user.id);
+      return resolveWebinar(await getWebinar(webinarId), user.id);
+    },
+
+    startWebinar: async (_, { webinarId, meetingUrl }, { user }) => {
+      requireAuth(user);
+      const w = await getWebinar(webinarId);
+      if (!w) throw new GraphQLError('Webinar not found');
+      if (w.hostId !== user.id) throw new GraphQLError('Only the host can start the webinar');
+      return resolveWebinar(await updateWebinarStatus(webinarId, 'LIVE', meetingUrl), user.id);
+    },
+
+    endWebinar: async (_, { webinarId }, { user }) => {
+      requireAuth(user);
+      const w = await getWebinar(webinarId);
+      if (!w) throw new GraphQLError('Webinar not found');
+      if (w.hostId !== user.id && user.role !== 'ADMIN') throw new GraphQLError('Only the host can end the webinar');
+      return resolveWebinar(await updateWebinarStatus(webinarId, 'ENDED'), user.id);
+    },
+
+    rewardWebinarHost: async (_, { webinarId, amount, message }, { user, pubsub }) => {
+      requireAuth(user);
+      if (amount < 1 || amount > 500) throw new GraphQLError('Amount must be 1–500 coins');
+      const w = await getWebinar(webinarId);
+      if (!w) throw new GraphQLError('Webinar not found');
+      if (w.hostId === user.id) throw new GraphQLError('Cannot reward yourself');
+      const id = uuid();
+      await dbSendTip({ id, fromId: user.id, toId: w.hostId, groupId: w.groupId, amount, message: message || `⭐ Great webinar: ${w.title}` });
+      await addWebinarReward(webinarId, amount);
+      const notifId = uuid();
+      await createNotification({ id: notifId, userId: w.hostId, type: 'TIP_RECEIVED', title: `⭐ ${user.name} rewarded you ${amount} coin${amount>1?'s':''}!`, message: message || `For hosting "${w.title}"`, actorId: user.id, groupId: w.groupId });
+      if (pubsub) pubsub.publish(`NOTIFICATION_${w.hostId}`, { notificationReceived: { id: notifId, type: 'TIP_RECEIVED', title: `⭐ Reward received!`, message: `${user.name} gave you ${amount} coins`, isRead: false, createdAt: new Date().toISOString() } });
+      return resolveWebinar(await getWebinar(webinarId), user.id);
     },
 
     updateProfile: async (_, args, { user }) => {

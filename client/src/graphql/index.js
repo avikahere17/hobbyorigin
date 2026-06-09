@@ -33,6 +33,7 @@ export const GROUP_QUERY = gql`query Group($id:ID!) {
     events { ${EVENT_FIELDS} }
     products { ${PRODUCT_FIELDS} }
     campaigns { ${CAMPAIGN_FIELDS} }
+    webinars { id title description meetingUrl startsAt durationMins status rewardTotal attendeeCount isAttending host { id name avatarColor } }
   }
 }`;
 
@@ -228,3 +229,41 @@ export const CREATE_COUPON_MUTATION = gql`mutation CreateCoupon($code:String!,$d
 }`;
 
 export const DELETE_COUPON_MUTATION = gql`mutation DeleteCoupon($id:ID!) { deleteCoupon(id:$id) }`;
+
+/* ═══════════════════════════════════════ LEARNING LIBRARY ════════════════════ */
+
+const LC_FIELDS = `id contentType title body mediaUrl thumbnailUrl category tags viewCount createdAt author { id name avatarColor role }`;
+
+export const LEARNING_CONTENT_QUERY = gql`query LearningContent($category:String,$contentType:ContentType,$search:String) {
+  learningContent(category:$category,contentType:$contentType,search:$search) { ${LC_FIELDS} }
+}`;
+
+export const LEARNING_CONTENT_ITEM_QUERY = gql`query LearningContentItem($id:ID!) {
+  learningContentItem(id:$id) { ${LC_FIELDS} }
+}`;
+
+export const CREATE_LEARNING_CONTENT_MUTATION = gql`mutation CreateLearningContent($contentType:ContentType!,$title:String!,$body:String,$mediaUrl:String,$thumbnailUrl:String,$category:String,$tags:[String!]) {
+  createLearningContent(contentType:$contentType,title:$title,body:$body,mediaUrl:$mediaUrl,thumbnailUrl:$thumbnailUrl,category:$category,tags:$tags) { ${LC_FIELDS} }
+}`;
+
+export const DELETE_LEARNING_CONTENT_MUTATION = gql`mutation DeleteLearningContent($id:ID!) { deleteLearningContent(id:$id) }`;
+
+/* ═══════════════════════════════════════ WEBINARS ════════════════════════════ */
+
+const WEBINAR_FIELDS = `id groupId title description meetingUrl startsAt durationMins maxAttendees status rewardTotal attendeeCount isAttending createdAt
+  host { id name avatarColor ageGroup tipsEarned }
+  attendees { id name avatarColor }`;
+
+export const GROUP_WEBINARS_QUERY = gql`query GroupWebinars($groupId:ID!) {
+  groupWebinars(groupId:$groupId) { ${WEBINAR_FIELDS} }
+}`;
+
+export const CREATE_WEBINAR_MUTATION = gql`mutation CreateWebinar($groupId:ID!,$title:String!,$description:String,$meetingUrl:String,$startsAt:String!,$durationMins:Int,$maxAttendees:Int) {
+  createWebinar(groupId:$groupId,title:$title,description:$description,meetingUrl:$meetingUrl,startsAt:$startsAt,durationMins:$durationMins,maxAttendees:$maxAttendees) { ${WEBINAR_FIELDS} }
+}`;
+
+export const JOIN_WEBINAR_MUTATION = gql`mutation JoinWebinar($webinarId:ID!) { joinWebinar(webinarId:$webinarId) { ${WEBINAR_FIELDS} } }`;
+export const LEAVE_WEBINAR_MUTATION = gql`mutation LeaveWebinar($webinarId:ID!) { leaveWebinar(webinarId:$webinarId) { ${WEBINAR_FIELDS} } }`;
+export const START_WEBINAR_MUTATION = gql`mutation StartWebinar($webinarId:ID!,$meetingUrl:String) { startWebinar(webinarId:$webinarId,meetingUrl:$meetingUrl) { ${WEBINAR_FIELDS} } }`;
+export const END_WEBINAR_MUTATION = gql`mutation EndWebinar($webinarId:ID!) { endWebinar(webinarId:$webinarId) { ${WEBINAR_FIELDS} } }`;
+export const REWARD_HOST_MUTATION = gql`mutation RewardHost($webinarId:ID!,$amount:Int!,$message:String) { rewardWebinarHost(webinarId:$webinarId,amount:$amount,message:$message) { ${WEBINAR_FIELDS} } }`;

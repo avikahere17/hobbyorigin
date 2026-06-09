@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useSubscription } from '@apollo/client';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
+import { useCurrency } from '../hooks/useCurrency';
 import ChatRoom from '../components/ChatRoom';
+import WebinarsTab from '../components/WebinarsTab';
 import {
   GROUP_QUERY, JOIN_GROUP_MUTATION, LEAVE_GROUP_MUTATION, GROUP_MEMBER_SUBSCRIPTION,
   SEND_TIP_MUTATION, REGISTER_FOR_EVENT_MUTATION, UNREGISTER_FROM_EVENT_MUTATION,
   CREATE_EVENT_MUTATION, CREATE_PRODUCT_MUTATION, CREATE_CAMPAIGN_MUTATION,
 } from '../graphql';
+import { formatCurrency, formatTicketPrice } from '../utils/currency';
 
 const GOAL_LABELS = { AWARENESS: '📢 Awareness', SIGNUPS: '✋ Sign-ups', DONATIONS: '💝 Donations' };
 const PRODUCT_EMOJIS = ['📦','🎨','📚','🧵','🌱','🎸','🍳','🏺','✂️','🧩','🖼️','📝','🎁','🔧','🌟'];
@@ -72,7 +76,7 @@ function CreateEventModal({ groupId, onClose, refetch }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
           <div className="form-group"><label className="form-label">Duration (mins)</label><input className="input" type="number" min={15} max={480} value={form.durationMins} onChange={e => setF('durationMins', e.target.value)} /></div>
           <div className="form-group"><label className="form-label">Capacity</label><input className="input" type="number" min={1} max={500} value={form.capacity} onChange={e => setF('capacity', e.target.value)} /></div>
-          <div className="form-group"><label className="form-label">Ticket price (p)</label><input className="input" type="number" min={0} value={form.ticketPrice} onChange={e => setF('ticketPrice', e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Ticket price (0 = free)</label><input className="input" type="number" min={0} value={form.ticketPrice} onChange={e => setF('ticketPrice', e.target.value)} /></div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
@@ -105,7 +109,7 @@ function CreateProductModal({ groupId, onClose, refetch }) {
         <div className="form-group"><label className="form-label">Product name *</label><input className="input" placeholder="e.g. Beginner Pottery Kit" value={form.name} onChange={e => setF('name', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Description</label><textarea className="input" rows={2} placeholder="What's included?" value={form.description} onChange={e => setF('description', e.target.value)} /></div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-          <div className="form-group"><label className="form-label">Price (£p)</label><input className="input" type="number" min={0} value={form.price} onChange={e => setF('price', e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Price (in your currency, 0 = free)</label><input className="input" type="number" min={0} value={form.price} onChange={e => setF('price', e.target.value)} /></div>
           <div className="form-group"><label className="form-label">Stock (-1=∞)</label><input className="input" type="number" min={-1} value={form.stock} onChange={e => setF('stock', e.target.value)} /></div>
           <div className="form-group"><label className="form-label">Type</label>
             <select className="input" value={form.productType} onChange={e => setF('productType', e.target.value)}>
@@ -256,6 +260,7 @@ export default function GroupDetail({ onAuthRequired }) {
             <button className={`tab ${tab === 'chat' ? 'active' : ''}`} onClick={() => setTab('chat')}>💬 Chat</button>
             <button className={`tab ${tab === 'events' ? 'active' : ''}`} onClick={() => setTab('events')}>🎪 Events {group.events?.length > 0 && `(${group.events.length})`}</button>
             <button className={`tab ${tab === 'shop' ? 'active' : ''}`} onClick={() => setTab('shop')}>🛍️ Shop {group.products?.length > 0 && `(${group.products.length})`}</button>
+            <button className={`tab ${tab === 'webinars' ? 'active' : ''}`} onClick={() => setTab('webinars')}>🎙️ Webinars {group.webinars?.filter(w=>w.status==='LIVE').length > 0 && '🔴'}</button>
             <button className={`tab ${tab === 'campaigns' ? 'active' : ''}`} onClick={() => setTab('campaigns')}>📢 Campaigns</button>
             <button className={`tab ${tab === 'members' ? 'active' : ''}`} onClick={() => setTab('members')}>👥 Members ({group.memberCount})</button>
             <button className={`tab ${tab === 'about' ? 'active' : ''}`} onClick={() => setTab('about')}>ℹ About</button>
@@ -278,7 +283,7 @@ export default function GroupDetail({ onAuthRequired }) {
                   </div>
                 ) : (
                   <div style={{ display: 'grid', gap: 12 }}>
-                    {group.events.map(ev => <EventCard key={ev.id} event={ev} currentUser={currentUser} onRegister={() => registerForEvent({ variables: { eventId: ev.id } })} onUnregister={() => unregisterFromEvent({ variables: { eventId: ev.id } })} />)}
+                    {group.events.map(ev => <EventCard key={ev.id} event={ev} currentUser={currentUser} currency={currentUser?.currency||'GBP'} onRegister={() => registerForEvent({ variables: { eventId: ev.id } })} onUnregister={() => unregisterFromEvent({ variables: { eventId: ev.id } })} />)}
                   </div>
                 )}
               </div>
@@ -297,9 +302,20 @@ export default function GroupDetail({ onAuthRequired }) {
                   </div>
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 12 }}>
-                    {group.products.map(p => <ProductCard key={p.id} product={p} />)}
+                    {group.products.map(p => <ProductCard key={p.id} product={p} currency={currentUser?.currency||'GBP'} />)}
                   </div>
                 )}
+              </div>
+            )}
+
+            {tab === 'webinars' && (
+              <div style={{ padding: 20, overflowY: 'auto', height: '100%' }}>
+                <WebinarsTab
+                  webinars={group.webinars || []}
+                  groupId={id}
+                  isMember={group.isMember}
+                  refetchQuery={{ query: GROUP_QUERY, variables: { id } }}
+                />
               </div>
             )}
 
@@ -415,7 +431,7 @@ export default function GroupDetail({ onAuthRequired }) {
   );
 }
 
-function EventCard({ event, currentUser, onRegister, onUnregister }) {
+function EventCard({ event, currentUser, currency, onRegister, onUnregister }) {
   const isPast = new Date(event.startsAt) < new Date();
   const spotsLeft = event.capacity - event.registrationCount;
   return (
@@ -425,7 +441,7 @@ function EventCard({ event, currentUser, onRegister, onUnregister }) {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
             <span style={{ fontSize: 'var(--font-base)', fontWeight: 800 }}>🎪 {event.title}</span>
             <span className="badge" style={{ background: isPast ? 'var(--surface3)' : 'rgba(16,185,129,0.15)', color: isPast ? 'var(--text-muted)' : 'var(--success)' }}>{isPast ? 'Past' : 'Upcoming'}</span>
-            {event.ticketPrice > 0 && <span className="badge badge-dim">🎟 £{(event.ticketPrice / 100).toFixed(2)}</span>}
+            {event.ticketPrice > 0 && <span className="badge badge-dim">🎟 {formatCurrency(event.ticketPrice, currency||'GBP')}</span>}
           </div>
           {event.description && <p style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)', marginBottom: 6 }}>{event.description}</p>}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 'var(--font-sm)', color: 'var(--text-muted)' }}>
@@ -451,8 +467,8 @@ function EventCard({ event, currentUser, onRegister, onUnregister }) {
   );
 }
 
-function ProductCard({ product }) {
-  const price = product.price === 0 ? 'Free' : `£${(product.price / 100).toFixed(2)}`;
+function ProductCard({ product, currency }) {
+  const price = formatTicketPrice(product.price, currency || 'GBP', 'Free');
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'center' }}>
       <div style={{ fontSize: 40, marginBottom: 4 }}>{product.imageEmoji}</div>

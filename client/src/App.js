@@ -13,6 +13,7 @@ import Notifications from './pages/Notifications';
 import AdminDashboard from './pages/AdminDashboard';
 import ExpertDashboard from './pages/ExpertDashboard';
 import SellerDashboard from './pages/SellerDashboard';
+import Learn from './pages/Learn';
 import './App.css';
 
 function AppContent() {
@@ -32,6 +33,7 @@ function AppContent() {
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/expert" element={<ExpertDashboard />} />
         <Route path="/seller" element={<SellerDashboard />} />
+        <Route path="/learn" element={<Learn />} />
       </Routes>
       {authModal && <AuthModal mode={authModal} onClose={closeAuth} />}
     </BrowserRouter>

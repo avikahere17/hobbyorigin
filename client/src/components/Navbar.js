@@ -38,6 +38,7 @@ export default function Navbar({ onAuthClick }) {
   const NAV_LINKS = [
     { path:'/', label: currentUser?.ageGroup==='KIDS' ? '🏠 Home' : currentUser?.ageGroup==='SENIORS' ? '🏠 Home' : 'Explore' },
     { path:'/find-folks', label: currentUser?.ageGroup==='KIDS' ? '🤝 Find Friends' : currentUser?.ageGroup==='SENIORS' ? '🤝 Find Neighbors' : 'Find Folks' },
+    { path:'/learn', label: currentUser?.ageGroup==='KIDS' ? '📚 Learn!' : currentUser?.ageGroup==='SENIORS' ? '📚 Library' : '📚 Learn' },
     ...(currentUser?.role==='EXPERT' || currentUser?.role==='ADMIN' ? [{ path:'/expert', label:'🎓 Expert' }] : []),
     ...(currentUser?.role==='SELLER' || currentUser?.role==='ADMIN' ? [{ path:'/seller', label:'🛍️ Seller' }] : []),
     ...(currentUser?.role==='ADMIN' ? [{ path:'/admin', label:'👑 Admin' }] : []),
@@ -130,6 +131,7 @@ export default function Navbar({ onAuthClick }) {
                     {[
                       {to:`/profile/${currentUser.id}`,label:'👤 My Profile'},
                       {to:'/notifications',label:'🔔 Notifications'},
+                      {to:'/learn',label:'📚 Learning Library'},
                       ...(currentUser.role==='EXPERT'||currentUser.role==='ADMIN' ? [{to:'/expert',label:'🎓 Expert Dashboard'}] : []),
                       ...(currentUser.role==='SELLER'||currentUser.role==='ADMIN' ? [{to:'/seller',label:'🛍️ Seller Dashboard'}] : []),
                       ...(currentUser.role==='ADMIN' ? [{to:'/admin',label:'👑 Admin Dashboard'}] : []),
