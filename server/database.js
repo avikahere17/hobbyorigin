@@ -199,6 +199,30 @@ export async function initDB() {
       coins INTEGER DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS product_orders (
+      id TEXT PRIMARY KEY,
+      product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      total_coins INTEGER NOT NULL DEFAULT 0,
+      total_amount INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'GBP',
+      payment_method TEXT NOT NULL DEFAULT 'coins',
+      status TEXT NOT NULL DEFAULT 'pending',
+      delivery_address TEXT DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS coin_cashouts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      coins INTEGER NOT NULL,
+      amount INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'GBP',
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS parent_child (
       parent_id TEXT NOT NULL REFERENCES users(id),
       child_id TEXT NOT NULL REFERENCES users(id),
@@ -902,11 +926,71 @@ export async function getWallet(userId) {
     await query('INSERT INTO wallet (user_id, coins) VALUES ($1,0) ON CONFLICT DO NOTHING', [userId]);
     rows = [{ user_id: userId, coins: 0 }];
   }
-  return { userId: rows[0].user_id, coins: parseInt(rows[0].coins) };
+  // Attach coin value info — resolved with user currency in resolver
+  return { userId: rows[0].user_id, coins: parseInt(rows[0].coins), coinValueLocal: 0.01, coinCurrency: 'GBP' };
 }
 export async function addCoins(userId, amount) {
   await query('INSERT INTO wallet (user_id, coins) VALUES ($1,$2) ON CONFLICT (user_id) DO UPDATE SET coins=wallet.coins+$2', [userId, amount]);
   return getWallet(userId);
+}
+
+// Coin value per currency: 1 coin = this many units of local currency (in smallest unit)
+const COIN_VALUE = { GBP: 1, USD: 1, EUR: 1, INR: 50, AUD: 2, CAD: 2, SGD: 2 }; // pence/cents/paise
+export function coinValueInCurrency(currency) {
+  return COIN_VALUE[currency] || 1; // default 1 cent
+}
+export function coinsToAmount(coins, currency) {
+  return coins * coinValueInCurrency(currency);
+}
+export function amountToCoins(amount, currency) {
+  return Math.ceil(amount / coinValueInCurrency(currency));
+}
+
+// ── PRODUCT ORDERS ────────────────────────────────────────────────────────────
+
+export async function getProduct(id) {
+  const { rows } = await query('SELECT * FROM products WHERE id=$1', [id]);
+  if (!rows[0]) return null;
+  const p = rows[0];
+  return { id: p.id, groupId: p.group_id, name: p.name, description: p.description || '', price: p.price, productType: p.product_type, imageEmoji: p.image_emoji || '📦', stock: p.stock ?? -1, creatorId: p.creator_id, createdAt: p.created_at };
+}
+
+export async function createProductOrder({ id, productId, userId, quantity, totalCoins, totalAmount, currency, paymentMethod, deliveryAddress, createdAt }) {
+  await query(
+    'INSERT INTO product_orders (id,product_id,user_id,quantity,total_coins,total_amount,currency,payment_method,status,delivery_address,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+    [id, productId, userId, quantity, totalCoins, totalAmount, currency, paymentMethod, 'confirmed', deliveryAddress || '', createdAt]
+  );
+  if (quantity > 0) {
+    // Decrement stock if stock-controlled (stock >= 0)
+    await query('UPDATE products SET stock = GREATEST(stock - $1, 0) WHERE id=$2 AND stock >= 0', [quantity, productId]).catch(() => {});
+  }
+  return getProductOrder(id);
+}
+
+export async function getProductOrder(id) {
+  const { rows } = await query('SELECT * FROM product_orders WHERE id=$1', [id]);
+  return rows[0] ? fmtOrder(rows[0]) : null;
+}
+
+export async function getUserOrders(userId) {
+  const { rows } = await query('SELECT * FROM product_orders WHERE user_id=$1 ORDER BY created_at DESC', [userId]);
+  return rows.map(fmtOrder);
+}
+
+function fmtOrder(o) {
+  return { id: o.id, productId: o.product_id, userId: o.user_id, quantity: o.quantity, totalCoins: o.total_coins, totalAmount: o.total_amount, currency: o.currency, paymentMethod: o.payment_method, status: o.status, deliveryAddress: o.delivery_address || '', createdAt: o.created_at };
+}
+
+// ── COIN CASHOUT ──────────────────────────────────────────────────────────────
+
+export async function createCoinCashout({ id, userId, coins, amount, currency, createdAt }) {
+  // Deduct coins first
+  await query('UPDATE wallet SET coins = GREATEST(coins - $1, 0) WHERE user_id=$2', [coins, userId]);
+  await query(
+    'INSERT INTO coin_cashouts (id,user_id,coins,amount,currency,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+    [id, userId, coins, amount, currency, 'pending', createdAt]
+  );
+  return { id, userId, coins, amount, currency, status: 'pending', createdAt };
 }
 
 // ── PARENT / CHILD ────────────────────────────────────────────────────────────

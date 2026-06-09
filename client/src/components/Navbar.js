@@ -131,6 +131,7 @@ export default function Navbar({ onAuthClick }) {
                     {[
                       {to:`/profile/${currentUser.id}`,label:'👤 My Profile'},
                       {to:'/notifications',label:'🔔 Notifications'},
+                      {to:'/wallet',label:'💰 My Wallet'},
                       {to:'/learn',label:'📚 Learning Library'},
                       {to:'/expert',label: currentUser.role==='EXPERT'||currentUser.role==='ADMIN' ? '🎓 Expert Dashboard' : '🎓 Register as Expert'},
                       {to:'/seller',label: currentUser.role==='SELLER'||currentUser.role==='ADMIN' ? '🛍️ Seller Dashboard' : '🛍️ Become a Seller'},

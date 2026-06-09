@@ -11,6 +11,8 @@ import {
   SEND_TIP_MUTATION, REGISTER_FOR_EVENT_MUTATION, UNREGISTER_FROM_EVENT_MUTATION,
   CREATE_EVENT_MUTATION, CREATE_PRODUCT_MUTATION, CREATE_CAMPAIGN_MUTATION,
   DELETE_GROUP_MUTATION, MAKE_GROUP_PRIVATE_MUTATION, ASSIGN_GROUP_ADMIN_MUTATION,
+  BUY_WITH_COINS_MUTATION, BUY_WITH_CARD_MUTATION, CREATE_PAYMENT_INTENT_MUTATION,
+  MY_WALLET_FULL_QUERY,
 } from '../graphql';
 import { formatCurrency, formatTicketPrice } from '../utils/currency';
 
@@ -326,7 +328,7 @@ export default function GroupDetail({ onAuthRequired }) {
                   </div>
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 12 }}>
-                    {group.products.map(p => <ProductCard key={p.id} product={p} currency={currentUser?.currency||'GBP'} />)}
+                    {group.products.map(p => <ProductCard key={p.id} product={p} currency={currentUser?.currency||'GBP'} currentUser={currentUser} />)}
                   </div>
                 )}
               </div>
@@ -613,20 +615,141 @@ function EventCard({ event, currentUser, currency, onRegister, onUnregister, onJ
   );
 }
 
-function ProductCard({ product, currency }) {
+function ProductCard({ product, currency, currentUser }) {
   const price = formatTicketPrice(product.price, currency || 'GBP', 'Free');
+  const [showBuy, setShowBuy] = useState(false);
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [qty, setQty] = useState(1);
+  const [done, setDone] = useState(null);
+  const [err, setErr] = useState('');
+  const [payMethod, setPayMethod] = useState('coins');
+
+  const { data: walletData } = useQuery(MY_WALLET_FULL_QUERY, { skip: !currentUser, fetchPolicy: 'cache-and-network' });
+  const [buyWithCoins, { loading: buyingCoins }] = useMutation(BUY_WITH_COINS_MUTATION, {
+    onCompleted: (d) => setDone(d.buyProductWithCoins),
+    onError: (e) => setErr(e.message),
+  });
+  const [createIntent] = useMutation(CREATE_PAYMENT_INTENT_MUTATION);
+  const [buyWithCard, { loading: buyingCard }] = useMutation(BUY_WITH_CARD_MUTATION, {
+    onCompleted: (d) => setDone(d.buyProductWithCard),
+    onError: (e) => setErr(e.message),
+  });
+
+  const wallet = walletData?.myWallet;
+  const coinValue = wallet?.coinValueLocal || 0.01;
+  const coinCurrency = wallet?.coinCurrency || currency || 'GBP';
+  const CURRENCY_SYMBOLS = { GBP: '£', USD: '$', EUR: '€', INR: '₹', AUD: 'A$', CAD: 'C$', SGD: 'S$' };
+  const sym = CURRENCY_SYMBOLS[coinCurrency] || coinCurrency;
+
+  // product.price is in smallest unit (pence/cents); convert to coins
+  const priceCoins = Math.ceil(product.price / coinValue);
+  const totalCoins = priceCoins * qty;
+  const totalFiat = `${sym}${((product.price * qty) / 100).toFixed(2)}`;
+  const canAfford = (wallet?.coins || 0) >= totalCoins;
+
+  const handleBuy = async () => {
+    setErr('');
+    if (payMethod === 'coins') {
+      await buyWithCoins({ variables: { productId: product.id, quantity: qty, deliveryAddress: deliveryAddress || undefined } });
+    } else {
+      try {
+        const { data: intentData } = await createIntent({ variables: { amount: product.price * qty, currency: coinCurrency, description: `Buy ${product.name}` } });
+        const piId = intentData.createPaymentIntent.paymentIntentId;
+        await buyWithCard({ variables: { productId: product.id, quantity: qty, paymentIntentId: piId, deliveryAddress: deliveryAddress || undefined } });
+      } catch (e) { setErr(e.message); }
+    }
+  };
+
   return (
-    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'center' }}>
-      <div style={{ fontSize: 40, marginBottom: 4 }}>{product.imageEmoji}</div>
-      <div style={{ fontWeight: 700, fontSize: 'var(--font-base)' }}>{product.name}</div>
-      {product.description && <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)' }}>{product.description}</div>}
-      <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
-        <span className="badge badge-primary" style={{ fontWeight: 800 }}>{price}</span>
-        <span className="badge badge-dim">{product.productType === 'DIGITAL' ? '💾 Digital' : '📦 Physical'}</span>
-        {product.stock >= 0 && <span className="badge badge-dim">{product.stock} left</span>}
+    <>
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8, textAlign: 'center' }}>
+        <div style={{ fontSize: 40, marginBottom: 4 }}>{product.imageEmoji}</div>
+        <div style={{ fontWeight: 700, fontSize: 'var(--font-base)' }}>{product.name}</div>
+        {product.description && <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)' }}>{product.description}</div>}
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <span className="badge badge-primary" style={{ fontWeight: 800 }}>{price}</span>
+          <span className="badge badge-dim">⭐ {priceCoins} coins</span>
+          <span className="badge badge-dim">{product.productType === 'DIGITAL' ? '💾 Digital' : '📦 Physical'}</span>
+          {product.stock >= 0 && <span className="badge badge-dim">{product.stock} left</span>}
+        </div>
+        {currentUser ? (
+          <button className="btn btn-primary btn-sm" style={{ marginTop: 4 }} onClick={() => setShowBuy(true)}>🛒 Buy Now</button>
+        ) : (
+          <button className="btn btn-ghost btn-sm" style={{ marginTop: 4 }}>🔒 Sign in to buy</button>
+        )}
       </div>
-      <button className="btn btn-primary btn-sm" style={{ marginTop: 4 }}>🛒 Enquire</button>
-    </div>
+
+      {showBuy && (
+        <div className="modal-overlay" onClick={() => !done && setShowBuy(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ fontWeight: 800, fontSize: 'var(--font-lg)' }}>{product.imageEmoji} {product.name}</div>
+              <button className="btn-close" onClick={() => setShowBuy(false)}>✕</button>
+            </div>
+
+            {done ? (
+              <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>Order confirmed!</div>
+                <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)' }}>
+                  {done.paymentMethod === 'coins' ? `⭐ ${done.totalCoins} coins deducted` : `💳 ${sym}${(done.totalAmount / 100).toFixed(2)} charged`}
+                  {done.paymentMethod === 'card' && <span> + 10% coins back!</span>}
+                </div>
+                <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => { setDone(null); setShowBuy(false); }}>Done</button>
+              </div>
+            ) : (
+              <>
+                {/* Qty */}
+                <div className="form-group">
+                  <label className="form-label">Quantity</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button type="button" onClick={() => setQty(Math.max(1, qty - 1))} style={{ width: 32, height: 32, borderRadius: '50%', border: '2px solid var(--border)', background: 'none', cursor: 'pointer', fontWeight: 800 }}>−</button>
+                    <span style={{ fontWeight: 700, minWidth: 24, textAlign: 'center' }}>{qty}</span>
+                    <button type="button" onClick={() => setQty(qty + 1)} style={{ width: 32, height: 32, borderRadius: '50%', border: '2px solid var(--border)', background: 'none', cursor: 'pointer', fontWeight: 800 }}>+</button>
+                  </div>
+                </div>
+
+                {/* Physical: delivery address */}
+                {product.productType === 'PHYSICAL' && (
+                  <div className="form-group">
+                    <label className="form-label">Delivery address</label>
+                    <input className="input" placeholder="Your delivery address" value={deliveryAddress} onChange={e => setDeliveryAddress(e.target.value)} />
+                  </div>
+                )}
+
+                {/* Pay method */}
+                <div className="form-group">
+                  <label className="form-label">Payment method</label>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button type="button" onClick={() => setPayMethod('coins')}
+                      style={{ flex: 1, padding: '10px 8px', borderRadius: 'var(--radius-sm)', border: `2px solid ${payMethod === 'coins' ? 'var(--primary)' : 'var(--border)'}`, background: payMethod === 'coins' ? 'var(--primary-light)' : 'transparent', cursor: 'pointer', fontWeight: 600, fontSize: 'var(--font-sm)', fontFamily: 'inherit', color: payMethod === 'coins' ? 'var(--primary)' : 'var(--text-muted)' }}>
+                      ⭐ {totalCoins} coins
+                      {!canAfford && <div style={{ fontSize: 11, color: 'var(--danger)' }}>Insufficient</div>}
+                    </button>
+                    <button type="button" onClick={() => setPayMethod('card')}
+                      style={{ flex: 1, padding: '10px 8px', borderRadius: 'var(--radius-sm)', border: `2px solid ${payMethod === 'card' ? 'var(--primary)' : 'var(--border)'}`, background: payMethod === 'card' ? 'var(--primary-light)' : 'transparent', cursor: 'pointer', fontWeight: 600, fontSize: 'var(--font-sm)', fontFamily: 'inherit', color: payMethod === 'card' ? 'var(--primary)' : 'var(--text-muted)' }}>
+                      💳 {totalFiat}
+                      <div style={{ fontSize: 11, color: 'var(--success)' }}>+10% coins back</div>
+                    </button>
+                  </div>
+                </div>
+
+                {wallet && (
+                  <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-dim)', marginBottom: 12 }}>Your balance: ⭐ {wallet.coins} coins ({sym}{(wallet.coins * coinValue).toFixed(2)})</div>
+                )}
+
+                {err && <div style={{ color: 'var(--danger)', fontSize: 'var(--font-sm)', marginBottom: 10 }}>{err}</div>}
+
+                <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleBuy}
+                  disabled={buyingCoins || buyingCard || (payMethod === 'coins' && !canAfford)}>
+                  {buyingCoins || buyingCard ? 'Processing…' : payMethod === 'coins' ? `⭐ Buy for ${totalCoins} coins` : `💳 Pay ${totalFiat}`}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

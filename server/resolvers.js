@@ -10,9 +10,11 @@ import {
   createNotification, getUserNotifications, markNotificationsRead, getUnreadCount, getBuddyStatus, sendBuddyRequest,
   sendTip as dbSendTip, getTipsTotal,
   createEvent, getEvent, getGroupEvents, registerForEvent as dbRegisterForEvent, unregisterFromEvent as dbUnregisterFromEvent, getEventRegistrationCount, isRegisteredForEvent,
-  createProduct, getGroupProducts,
+  createProduct, getGroupProducts, getProduct,
   createCampaign, getGroupCampaigns,
   getWallet, addCoins, linkParentChild, getChildren,
+  createProductOrder, getProductOrder, getUserOrders,
+  createCoinCashout, coinValueInCurrency, coinsToAmount,
   registerExpert, getExpert, getExpertByUser, updateExpert, searchExperts as dbSearchExperts,
   createBooking, getBooking, getUserBookings, getExpertBookings, updateBookingStatus,
   createReview, getExpertReviews,
@@ -307,7 +309,21 @@ export const resolvers = {
       return getUserNotifications(user.id);
     },
 
-    myWallet: async (_, __, { user }) => { requireAuth(user); return getWallet(user.id); },
+    myWallet: async (_, __, { user }) => {
+      requireAuth(user);
+      const wallet = await getWallet(user.id);
+      const currency = user.currency || 'GBP';
+      const unitValue = coinValueInCurrency(currency); // e.g. 1 pence per coin
+      return { ...wallet, coinValueLocal: unitValue / 100, coinCurrency: currency }; // convert to major units
+    },
+    myOrders: async (_, __, { user }) => {
+      requireAuth(user);
+      const orders = await getUserOrders(user.id);
+      return Promise.all(orders.map(async o => ({
+        ...o,
+        product: await getProduct(o.productId).catch(() => null),
+      })));
+    },
 
     groupEvents: async (_, { groupId }, { user }) => {
       const events = await getGroupEvents(groupId);
@@ -536,6 +552,60 @@ export const resolvers = {
       const tip = await dbSendTip({ id: uuid(), fromId: user.id, toId: toUserId, groupId: groupId || null, amount, message: message || '', createdAt: new Date().toISOString() });
       await addCoins(toUserId, amount);
       return tip;
+    },
+
+    buyProductWithCoins: async (_, { productId, quantity = 1, deliveryAddress }, { user }) => {
+      requireAuth(user);
+      const product = await getProduct(productId);
+      if (!product) throw new GraphQLError('Product not found');
+      if (product.stock === 0) throw new GraphQLError('Product is out of stock');
+      const totalCoins = product.price * quantity;
+      const wallet = await getWallet(user.id);
+      if (wallet.coins < totalCoins) throw new GraphQLError(`Not enough coins. Need ${totalCoins}, have ${wallet.coins}`);
+      // Deduct coins
+      await addCoins(user.id, -totalCoins);
+      // Credit seller
+      const creator = await getUser(product.creatorId).catch(() => null);
+      if (creator) await addCoins(creator.id, Math.floor(totalCoins * 0.9)); // 90% to seller, 10% platform fee
+      const currency = user.currency || 'GBP';
+      const order = await createProductOrder({
+        id: uuid(), productId, userId: user.id, quantity, totalCoins,
+        totalAmount: coinsToAmount(totalCoins, currency), currency,
+        paymentMethod: 'coins', deliveryAddress, createdAt: new Date().toISOString(),
+      });
+      return { ...order, product };
+    },
+
+    buyProductWithCard: async (_, { productId, quantity = 1, paymentIntentId, deliveryAddress }, { user }) => {
+      requireAuth(user);
+      const product = await getProduct(productId);
+      if (!product) throw new GraphQLError('Product not found');
+      if (product.stock === 0) throw new GraphQLError('Product is out of stock');
+      const currency = user.currency || 'GBP';
+      const totalCoins = product.price * quantity;
+      const totalAmount = coinsToAmount(totalCoins, currency);
+      // In production: verify Stripe paymentIntent is 'succeeded'
+      // Earn coins for card purchase (loyalty: 10% back as coins)
+      await addCoins(user.id, Math.floor(totalCoins * 0.1));
+      const order = await createProductOrder({
+        id: uuid(), productId, userId: user.id, quantity, totalCoins,
+        totalAmount, currency, paymentMethod: 'card',
+        deliveryAddress, createdAt: new Date().toISOString(),
+      });
+      return { ...order, product };
+    },
+
+    cashoutCoins: async (_, { coins }, { user }) => {
+      requireAuth(user);
+      const MIN_CASHOUT = 500;
+      if (coins < MIN_CASHOUT) throw new GraphQLError(`Minimum cashout is ${MIN_CASHOUT} coins`);
+      const wallet = await getWallet(user.id);
+      if (wallet.coins < coins) throw new GraphQLError(`Not enough coins. Have ${wallet.coins}`);
+      const currency = user.currency || 'GBP';
+      const amount = coinsToAmount(coins, currency); // in smallest unit (pence/cents)
+      // In production: initiate Stripe payout or PayPal transfer
+      const cashout = await createCoinCashout({ id: uuid(), userId: user.id, coins, amount, currency, createdAt: new Date().toISOString() });
+      return cashout;
     },
 
     sendMessage: async (_, { groupId, content, messageType, videoUrl }, { user, pubsub }) => {

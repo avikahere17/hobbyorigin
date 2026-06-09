@@ -224,6 +224,34 @@ export const typeDefs = `#graphql
   type Wallet {
     userId: ID!
     coins: Int!
+    # Coin value in user's local currency (e.g. £0.01 per coin)
+    coinValueLocal: Float!
+    coinCurrency: String!
+  }
+
+  type ProductOrder {
+    id: ID!
+    productId: ID!
+    userId: ID!
+    quantity: Int!
+    totalCoins: Int!
+    totalAmount: Int!       # in smallest currency unit (pence/cents)
+    currency: String!
+    paymentMethod: String!  # "coins" | "card"
+    status: String!         # "pending" | "confirmed" | "delivered" | "cancelled"
+    deliveryAddress: String
+    createdAt: String!
+    product: Product
+  }
+
+  type CoinCashout {
+    id: ID!
+    userId: ID!
+    coins: Int!
+    amount: Int!            # in smallest currency unit
+    currency: String!
+    status: String!         # "pending" | "paid" | "failed"
+    createdAt: String!
   }
 
   type Coupon {
@@ -310,6 +338,7 @@ export const typeDefs = `#graphql
     findFolks(interests: [String!], city: String, building: String, neighborhood: String, ageGroup: AgeGroup): [FolkResult!]!
     myNotifications: [Notification!]!
     myWallet: Wallet!
+    myOrders: [ProductOrder!]!
     groupEvents(groupId: ID!): [Event!]!
     groupProducts(groupId: ID!): [Product!]!
     groupCampaigns(groupId: ID!): [Campaign!]!
@@ -340,6 +369,9 @@ export const typeDefs = `#graphql
     assignGroupAdmin(groupId: ID!, userId: ID!): Group!
     createPaymentIntent(amount: Int!, currency: String, description: String): PaymentIntent!
     confirmTipPayment(paymentIntentId: String!, toUserId: ID!, groupId: ID, amount: Int!, message: String): Tip!
+    buyProductWithCoins(productId: ID!, quantity: Int, deliveryAddress: String): ProductOrder!
+    buyProductWithCard(productId: ID!, quantity: Int, paymentIntentId: String!, deliveryAddress: String): ProductOrder!
+    cashoutCoins(coins: Int!): CoinCashout!
     sendMessage(groupId: ID!, content: String!, messageType: MessageType, videoUrl: String): Message!
     sendBuddyRequest(toUserId: ID!): Boolean!
     markNotificationsRead: Boolean!

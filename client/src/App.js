@@ -15,6 +15,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import ExpertDashboard from './pages/ExpertDashboard';
 import SellerDashboard from './pages/SellerDashboard';
 import Learn from './pages/Learn';
+import Wallet from './pages/Wallet';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import CookieConsent from './components/CookieConsent';
 import './App.css';
@@ -83,6 +84,7 @@ function AppContent() {
         <Route path="/expert" element={<ExpertDashboard />} />
         <Route path="/seller" element={<SellerDashboard />} />
         <Route path="/learn" element={<Learn />} />
+        <Route path="/wallet" element={<Wallet onAuthRequired={openAuth} />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
       </Routes>
       {authModal && <AuthModal mode={authModal} onClose={closeAuth} />}

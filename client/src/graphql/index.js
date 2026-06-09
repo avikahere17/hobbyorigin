@@ -309,3 +309,26 @@ export const CREATE_PAYMENT_INTENT_MUTATION = gql`mutation CreatePaymentIntent($
 export const CONFIRM_TIP_PAYMENT_MUTATION = gql`mutation ConfirmTipPayment($paymentIntentId:String!,$toUserId:ID!,$groupId:ID,$amount:Int!,$message:String) {
   confirmTipPayment(paymentIntentId:$paymentIntentId,toUserId:$toUserId,groupId:$groupId,amount:$amount,message:$message) { id amount message }
 }`;
+
+/* ═══════════════════════════════════════ WALLET / ORDERS ═════════════════════ */
+
+export const MY_WALLET_FULL_QUERY = gql`query MyWalletFull {
+  myWallet { userId coins coinValueLocal coinCurrency }
+  myOrders { id productId quantity totalCoins totalAmount currency paymentMethod status deliveryAddress createdAt product { id name imageEmoji price productType } }
+}`;
+
+export const BUY_WITH_COINS_MUTATION = gql`mutation BuyWithCoins($productId:ID!,$quantity:Int,$deliveryAddress:String) {
+  buyProductWithCoins(productId:$productId,quantity:$quantity,deliveryAddress:$deliveryAddress) {
+    id totalCoins totalAmount currency paymentMethod status product { id name imageEmoji }
+  }
+}`;
+
+export const BUY_WITH_CARD_MUTATION = gql`mutation BuyWithCard($productId:ID!,$quantity:Int,$paymentIntentId:String!,$deliveryAddress:String) {
+  buyProductWithCard(productId:$productId,quantity:$quantity,paymentIntentId:$paymentIntentId,deliveryAddress:$deliveryAddress) {
+    id totalCoins totalAmount currency paymentMethod status product { id name imageEmoji }
+  }
+}`;
+
+export const CASHOUT_COINS_MUTATION = gql`mutation CashoutCoins($coins:Int!) {
+  cashoutCoins(coins:$coins) { id coins amount currency status createdAt }
+}`;
