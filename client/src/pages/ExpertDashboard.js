@@ -86,7 +86,29 @@ export default function ExpertDashboard() {
     onCompleted: () => refetchExpert()
   });
 
-  if (!currentUser) return <div className="page"><div className="container" style={{ paddingTop: 100, textAlign: 'center' }}>Please sign in to access the Expert Dashboard.</div></div>;
+  if (!currentUser) return (
+    <div className="page">
+      <div style={{ background: 'linear-gradient(135deg,rgba(99,102,241,0.1),rgba(139,92,246,0.08))', borderBottom: '2px solid var(--border)', padding: '48px 0 36px' }}>
+        <div className="container" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 56, marginBottom: 12 }}>🎓</div>
+          <h1 style={{ fontSize: 'var(--font-xl)', fontWeight: 800, marginBottom: 10 }}>Become an Expert Coach</h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-base)', maxWidth: 520, margin: '0 auto 24px' }}>
+            Share your skills with the community — offer free charity sessions or set your own paid rate. Sign up in 60 seconds.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <a href="/?join=true&role=expert" className="btn btn-primary btn-lg">Create Account → Register as Expert</a>
+            <a href="/?login=true&role=expert" className="btn btn-ghost btn-lg">Sign In → Go to Dashboard</a>
+          </div>
+          <div style={{ marginTop: 20, display: 'flex', gap: 20, justifyContent: 'center', flexWrap: 'wrap', fontSize: 'var(--font-sm)', color: 'var(--text-muted)' }}>
+            <span>🆓 Charity sessions</span>
+            <span>💰 Set your own rate</span>
+            <span>⭐ Build ratings &amp; reviews</span>
+            <span>🌸 Elder support specialisation</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   const expert = expertData?.myExpertProfile;
   const bookings = bookingsData?.expertBookings || [];

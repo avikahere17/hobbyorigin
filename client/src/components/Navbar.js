@@ -70,13 +70,20 @@ export default function Navbar({ onAuthClick }) {
         </Link>
 
         {/* Nav links */}
-        {currentUser && (
-          <div style={{display:'flex',gap:4,alignItems:'center'}}>
-            {NAV_LINKS.map(n => (
+        <div style={{display:'flex',gap:4,alignItems:'center'}}>
+          {currentUser ? (
+            NAV_LINKS.map(n => (
               <Link key={n.path} to={n.path} style={navLinkStyle(n.path)}>{n.label}</Link>
-            ))}
-          </div>
-        )}
+            ))
+          ) : (
+            /* logged-out: show just Explore and Become Expert so visitors can discover the platform */
+            <>
+              <Link to="/" style={navLinkStyle('/')}>Explore</Link>
+              <Link to="/expert" style={navLinkStyle('/expert')}>🎓 Become Expert</Link>
+              <Link to="/find-folks" style={navLinkStyle('/find-folks')}>Find Folks</Link>
+            </>
+          )}
+        </div>
 
         {/* Right side */}
         <div style={{display:'flex',alignItems:'center',gap:10}}>

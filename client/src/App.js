@@ -25,20 +25,38 @@ function DeepLinkHandler({ openAuth }) {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
 
+  // On login/register success, redirect to ?role destination if present
+  useEffect(() => {
+    if (!currentUser) return;
+    const role = sessionStorage.getItem('pendingRole');
+    if (role) {
+      sessionStorage.removeItem('pendingRole');
+      if (role === 'expert') navigate('/expert');
+      else if (role === 'seller') navigate('/seller');
+    }
+  }, [currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (currentUser) return; // already logged in, nothing to do
     const params = new URLSearchParams(window.location.search);
     const join = params.get('join');
     const login = params.get('login');
+    const role = params.get('role');
+
+    // Stash ?role so we can redirect after auth completes
+    if (role) sessionStorage.setItem('pendingRole', role);
+
     if (join === 'true') {
       openAuth('register');
     } else if (login === 'true') {
       openAuth('login');
+    } else if (role && !join && !login) {
+      // e.g. direct visit to /?role=expert without join — open register
+      openAuth('register');
     }
     // Clean the query string from the URL without a page reload
-    if (join || login) {
-      const clean = window.location.pathname;
-      window.history.replaceState({}, '', clean);
+    if (join || login || role) {
+      window.history.replaceState({}, '', window.location.pathname);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
