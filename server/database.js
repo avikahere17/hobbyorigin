@@ -19,8 +19,23 @@ const pool = new Pool({
 // Convenience: run a query and return rows
 const query = (text, params) => pool.query(text, params);
 
+// Retry helper — Neon free tier can take a few seconds to wake from pause
+async function withRetry(fn, retries = 5, delayMs = 2000) {
+  for (let i = 0; i < retries; i++) {
+    try { return await fn(); }
+    catch (err) {
+      if (i === retries - 1) throw err;
+      console.warn(`DB connection attempt ${i + 1} failed (${err.message}) — retrying in ${delayMs}ms…`);
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+}
+
 // Run all CREATE TABLE IF NOT EXISTS statements on startup
 export async function initDB() {
+  // Wait for Neon to wake up (free tier pauses after inactivity)
+  await withRetry(() => pool.query('SELECT 1'));
+  console.log('✅ PostgreSQL connection established');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -339,8 +354,28 @@ export async function initDB() {
       if (!err.message.includes('already exists')) console.warn('Migration warning:', err.message);
     });
   }
+  // ── System user (fixed ID — owner of all seeded groups) ──────────────────
+  // Uses ON CONFLICT DO NOTHING so it's safe to run on every startup
+  const SYSTEM_ID = '00000000-system-hobbyorigin-0000';
+  await pool.query(`
+    INSERT INTO users (id,name,email,password,avatar_color,age_group,theme,role,currency,locale,created_at)
+    VALUES ($1,'HobbyOrigin','system@hobbyorigin.internal','!',
+            '#6366f1','ADULTS','STANDARD','ADMIN','GBP','en-GB',$2)
+    ON CONFLICT (id) DO NOTHING
+  `, [SYSTEM_ID, new Date().toISOString()]).catch(() => {});
+
+  // ── Auto-seed groups if the DB is empty or was wiped ─────────────────────
+  const { rows: gc } = await pool.query(`SELECT COUNT(*) as c FROM groups WHERE is_seeded=TRUE`).catch(() => ({ rows: [{ c: '1' }] }));
+  if (parseInt(gc[0].c) === 0) {
+    console.log('🌱 No seeded groups found — auto-seeding now…');
+    await seedGroups(SYSTEM_ID).catch(e => console.warn('Auto-seed warning:', e.message));
+  }
+
   console.log('✅ PostgreSQL tables ready');
 }
+
+// Exported so resolvers can call it too (admin dashboard)
+export const SYSTEM_USER_ID = '00000000-system-hobbyorigin-0000';
 
 // ── USER ──────────────────────────────────────────────────────────────────────
 
@@ -798,6 +833,15 @@ const SEED_GROUPS = [
 ];
 
 export async function seedGroups(systemUserId) {
+  // Always fall back to the permanent system user so FK never breaks
+  const creatorId = systemUserId || '00000000-system-hobbyorigin-0000';
+  // Ensure system user exists before inserting groups
+  await query(`
+    INSERT INTO users (id,name,email,password,avatar_color,age_group,theme,role,currency,locale,created_at)
+    VALUES ($1,'HobbyOrigin','system@hobbyorigin.internal','!','#6366f1','ADULTS','STANDARD','ADMIN','GBP','en-GB',$2)
+    ON CONFLICT (id) DO NOTHING
+  `, [creatorId, new Date().toISOString()]).catch(() => {});
+
   const { rows: existing } = await query('SELECT COUNT(*) as c FROM groups WHERE is_seeded=TRUE');
   if (parseInt(existing[0].c) > 0) return false; // already seeded
   const now = new Date().toISOString();
@@ -805,9 +849,10 @@ export async function seedGroups(systemUserId) {
     const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
     await query(
       'INSERT INTO groups (id,name,description,category,tags,max_members,creator_id,age_groups,building,neighborhood,city,country,is_seeded,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
-      [id, g.name, g.description, g.category, JSON.stringify(g.tags), 500, systemUserId, JSON.stringify(g.ageGroups), '', '', '', '', true, now]
+      [id, g.name, g.description, g.category, JSON.stringify(g.tags), 500, creatorId, JSON.stringify(g.ageGroups), '', '', '', '', true, now]
     );
   }
+  console.log(`✅ Seeded ${SEED_GROUPS.length} groups`);
   return true;
 }
 
